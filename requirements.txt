@@ -1,0 +1,7 @@
+# Add dependencies here
+ultralytics
+supervision
+opencv-python
+numpy
+sahi
+pyyaml
