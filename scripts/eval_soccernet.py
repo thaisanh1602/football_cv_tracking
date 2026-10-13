@@ -55,6 +55,7 @@ def main():
     ap.add_argument("--out", default="outputs/trackeval")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--conf", type=float, default=0.25)
+    ap.add_argument("--ball-conf", type=float, default=0.1)
     ap.add_argument("--include-ball", action="store_true", help="GT SoccerNet có cả bóng; bật để đánh giá cả bóng")
     ap.add_argument("--sahi", action="store_true")
     ap.add_argument("--device", default=None)
@@ -65,7 +66,7 @@ def main():
     seqs = seqs[: args.limit] if args.limit else seqs
     name = args.name or Path(args.tracker).stem
 
-    detector = Detector(args.weights, imgsz=args.imgsz, conf=args.conf, device=args.device)
+    detector = Detector(args.weights, imgsz=args.imgsz, conf=args.conf, ball_conf=args.ball_conf, device=args.device)
     ball_detector = SlicedBallDetector(detector) if args.sahi else None
     for seq in tqdm(seqs, desc=name):
         out_file = Path(args.out) / name / "data" / f"{seq}.txt"

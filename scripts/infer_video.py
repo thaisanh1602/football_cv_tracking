@@ -42,6 +42,7 @@ def main():
     ap.add_argument("--tracker", default=str(ROOT / "configs" / "bytetrack.yaml"))
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--conf", type=float, default=0.25)
+    ap.add_argument("--ball-conf", type=float, default=0.1)
     ap.add_argument("--sahi", action="store_true", help="sliced inference cho bóng")
     ap.add_argument("--team", action="store_true", help="phân đội bằng SigLIP")
     ap.add_argument("--team-stride", type=int, default=30, help="lấy crop mỗi N frame để fit phân đội")
@@ -50,7 +51,7 @@ def main():
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
 
-    detector = Detector(args.weights, imgsz=args.imgsz, conf=args.conf, device=args.device)
+    detector = Detector(args.weights, imgsz=args.imgsz, conf=args.conf, ball_conf=args.ball_conf, device=args.device)
     ball_detector = SlicedBallDetector(detector) if args.sahi else None
     tracker = PeopleTracker(args.tracker, device=args.device)
     ball_tracker = BallTracker()

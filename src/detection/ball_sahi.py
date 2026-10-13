@@ -9,13 +9,15 @@ class SlicedBallDetector:
     """Sliced inference (kiểu SAHI) chỉ cho quả bóng.
 
     Người vẫn detect full-frame; bóng nhỏ nên cắt frame thành tile rồi detect từng tile.
+    Giữ tile_imgsz / slice_wh ~ imgsz lúc train / 1920 (1280/1920 ~ 640/960) để bóng trong tile
+    cùng kích thước như lúc train. Tile 640 -> 640 làm bóng to gấp 1.5 lần và recall giảm 0.549 -> 0.42.
     """
 
     def __init__(
         self,
         detector: Detector,
-        slice_wh: int = 640,
-        overlap_wh: int = 128,
+        slice_wh: int = 960,
+        overlap_wh: int = 192,
         tile_imgsz: int = 640,
         conf: float = 0.1,
     ):
