@@ -1,7 +1,14 @@
-# Add dependencies here
-ultralytics
-supervision
+# torch: cài theo CUDA của máy (Kaggle đã có sẵn) - https://pytorch.org/get-started/locally/
+ultralytics>=8.4
+supervision>=0.26
 opencv-python
 numpy
-sahi
 pyyaml
+tqdm
+lap>=0.5.12             # ultralytics tracker cần
+scikit-learn
+umap-learn              # phân đội; thiếu thì team_classifier tạm dùng PCA
+transformers            # SigLIP
+SoccerNet               # tải SoccerNet-Tracking
+roboflow                # tải dataset detection
+git+https://github.com/JonathonLuiten/TrackEval.git

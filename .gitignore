@@ -6,3 +6,6 @@ outputs/
 *.pt
 *.mp4
 .idea/
+*.onnx
+*.engine
+.ipynb_checkpoints/

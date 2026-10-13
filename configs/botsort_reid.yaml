@@ -1,0 +1,13 @@
+# BoT-SORT + ReID: thêm appearance embedding để nối lại ID sau khi bị che
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 50
+match_thresh: 0.8
+fuse_score: True
+gmc_method: sparseOptFlow
+proximity_thresh: 0.5
+appearance_thresh: 0.8   # tăng nếu cầu thủ cùng đội bị đổi ID cho nhau (áo giống nhau)
+with_reid: True
+model: yolo26n-cls.pt    # model ReID; "auto" chỉ chạy được qua model.track() nên không dùng ở đây
