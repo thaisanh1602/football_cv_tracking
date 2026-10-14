@@ -9,6 +9,7 @@ import sys
 from contextlib import nullcontext
 from pathlib import Path
 
+import numpy as np
 import supervision as sv
 from tqdm import tqdm
 
@@ -19,7 +20,7 @@ from src.detection.detector import Detector, split_people_ball  # noqa: E402
 from src.eval.export_mot import MOTWriter  # noqa: E402
 from src.tracking.ball_tracker import BallTracker  # noqa: E402
 from src.tracking.trackers import PeopleTracker  # noqa: E402
-from src.utils.label_mapping import PLAYER_ID  # noqa: E402
+from src.utils.label_mapping import PLAYER_ID, REFEREE_ID  # noqa: E402
 from src.viz.annotate import FootballAnnotator  # noqa: E402
 
 
@@ -47,6 +48,9 @@ def main():
     ap.add_argument("--team", action="store_true", help="phân đội bằng SigLIP")
     ap.add_argument("--team-stride", type=int, default=30, help="lấy crop mỗi N frame để fit phân đội")
     ap.add_argument("--mot-out", default=None, help="ghi kết quả tracking cầu thủ dạng MOT")
+    ap.add_argument("--pitch-weights", default=None, help="model keypoint sân -> vẽ radar 2D")
+    ap.add_argument("--pitch-imgsz", type=int, default=1280, help="imgsz lúc train model keypoint sân")
+    ap.add_argument("--no-smooth", action="store_true", help="tắt làm mượt homography (để so sánh độ rung)")
     ap.add_argument("--max-frames", type=int, default=None, help="chỉ chạy N frame đầu (debug)")
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
@@ -66,6 +70,16 @@ def main():
         team_assigner = TeamAssigner(classifier)
 
     video_info = sv.VideoInfo.from_video_path(args.source)
+
+    pitch_mapper = radar = None
+    if args.pitch_weights:
+        from src.pitch.homography import PitchMapper
+        from src.pitch.keypoints import PitchKeypointDetector
+        from src.pitch.radar import Radar, overlay_radar
+
+        pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
+        radar = Radar()
+
     if args.max_frames:
         video_info.total_frames = min(video_info.total_frames or args.max_frames, args.max_frames)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +95,13 @@ def main():
             ball = ball_tracker.update(ball)
             teams = team_assigner.assign(frame, people) if team_assigner else None
 
-            sink.write_frame(annotator.annotate(frame, people, ball, teams))
+            out = annotator.annotate(frame, people, ball, teams)
+            if pitch_mapper and pitch_mapper.update(frame) is not None:
+                feet = pitch_mapper.to_pitch(people.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)) if len(people) else np.empty((0, 2))
+                ball_m = pitch_mapper.to_pitch(ball.get_anchors_coordinates(sv.Position.CENTER)) if len(ball) else None
+                radar_teams = teams if teams is not None else np.where(people.class_id == REFEREE_ID, 2, 3)
+                out = overlay_radar(out, radar.draw(feet, radar_teams, ball_m))
+            sink.write_frame(out)
             if mot:
                 mot.write(i + 1, people)
 

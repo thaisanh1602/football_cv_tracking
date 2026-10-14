@@ -10,5 +10,6 @@ scikit-learn
 umap-learn              # phân đội; thiếu thì team_classifier tạm dùng PCA
 transformers            # SigLIP
 SoccerNet               # tải SoccerNet-Tracking
+remotezip               # tải từng clip SoccerNet GSR qua HTTP range
 roboflow                # tải dataset detection
 git+https://github.com/JonathonLuiten/TrackEval.git

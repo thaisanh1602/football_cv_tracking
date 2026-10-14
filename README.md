@@ -2,28 +2,34 @@
 
 Detection + tracking cầu thủ / thủ môn / trọng tài / bóng trên video bóng đá broadcast, đánh giá trên SoccerNet-Tracking.
 
-<!-- TODO: GIF demo ở đây -->
+![demo](assets/demo.gif)
+
+*SoccerNet SNMOT-060, toàn bộ pipeline: BoT-SORT đã tinh chỉnh, phân đội SigLIP + UMAP (xanh dương / hồng), trọng tài (vàng), bóng (tam giác vàng). Video 30 s đầy đủ: <!-- TODO: link YouTube / Drive -->*
 
 ## Pipeline
 
 ```
-frame ─► YOLO (imgsz 1280) ─┬─ người ─► ByteTrack / BoT-SORT (+ReID) ─► phân đội (SigLIP → UMAP → KMeans, vote theo track ID)
-                            └─ bóng  ─► SAHI (tile 640) ─► BallTracker (1 bóng/frame, lọc nhảy) ─┴─► vẽ + xuất MOT
+frame ─► YOLO (imgsz 1280) ─┬─ người (conf ≥ 0.25) ─► BoT-SORT (new_track_thresh 0.8) ─► phân đội (SigLIP → UMAP → KMeans k=3, vote trượt theo track ID)
+                            └─ bóng  (conf ≥ 0.1)  ─► [SAHI tile 960 → 640] ─► BallTracker (1 bóng/frame, lọc nhảy) ─┴─► vẽ + xuất MOT
 ```
 
 ## Cấu trúc
 
 ```
-configs/        data.yaml, bytetrack.yaml, botsort.yaml, botsort_reid.yaml
+configs/        data.yaml, bytetrack.yaml, botsort.yaml, botsort_reid.yaml, botsort_tuned.yaml (mặc định), ablation/
 src/
   detection/    detector.py (YOLO -> sv.Detections, map class), ball_sahi.py (sliced inference cho bóng)
   tracking/     trackers.py (bọc tracker Ultralytics), ball_tracker.py
   team/         team_classifier.py (SigLIP + UMAP + KMeans, TeamAssigner)
+  pitch/        config.py (sân FIFA 105×68 m, 32 keypoint, flip_idx), keypoints.py (YOLO-pose),
+                homography.py (RANSAC + kiểm tra H + làm mượt One-Euro + phát hiện cắt cảnh), radar.py
   eval/         export_mot.py, run_trackeval.py (HOTA / IDF1 / IDSW)
   viz/          annotate.py
   utils/        label_mapping.py
-scripts/        prepare_dataset.py, train.py, infer_video.py, eval_soccernet.py
-notebooks/      kaggle_train.ipynb, kaggle_eval.ipynb
+scripts/        prepare_dataset.py, train.py, infer_video.py,
+                eval_soccernet.py, analyze_idsw.py, eval_ball.py, eval_team.py,
+                prepare_pitch_dataset.py, train_pitch.py
+notebooks/      kaggle_train.ipynb, kaggle_eval.ipynb, kaggle_train_pitch.ipynb
 ```
 
 ## Cài đặt
@@ -127,6 +133,29 @@ Mỗi frame ghép GT ↔ track (Hungarian, IoU ≥ 0.5, ưu tiên giữ cặp c�
 
 **Hạn chế:** ReID trong bảng dùng `yolo26n-cls.pt`, một model phân loại ImageNet, không phải model ReID được train cho người. Embedding của nó không phân biệt được cầu thủ cùng đội mặc áo giống nhau, nên ReID tăng tráo ID thay vì giảm. Kết luận "ReID không giúp" chỉ đúng với model này. Cần thử lại với model ReID thật (vd OSNet qua BoxMOT).
 
+### Phân đội
+
+Đo bằng `scripts/eval_team.py` trên SNMOT-061 → 070 (10 sequence, mỗi 5 frame). Nhãn đội thật lấy từ `gameinfo.ini` của SoccerNet (`player team left/right`). Các cụm KMeans không có tên nên mỗi sequence lấy cách ghép cụm ↔ đội tốt nhất. Track lấy từ `botsort_tuned`, crop để fit KMeans lấy mỗi 25 frame. Accuracy tính trên cầu thủ (không tính thủ môn, trọng tài).
+
+| Embedding → giảm chiều, số cụm | Từng crop | Vote 10 đầu | Vote trượt 5 | Vote trượt 15 | Seq tệ nhất |
+|---|---|---|---|---|---|
+| Màu áo (Lab, bỏ pixel cỏ), k=2 | 0.620 | 0.617 | 0.626 | 0.630 | 0.508 |
+| SigLIP → PCA, k=2 | 0.561 | 0.599 | 0.569 | 0.574 | 0.515 |
+| SigLIP → PCA, k=3 | 0.653 | 0.655 | 0.655 | 0.654 | 0.509 |
+| SigLIP → UMAP, k=2 | 0.923 | 0.864 | 0.927 | 0.922 | 0.503 |
+| **SigLIP → UMAP, k=3** (mặc định) | **0.939** | 0.890 | **0.944** | **0.940** | **0.754** |
+
+- **UMAP là yếu tố quyết định, không phải SigLIP.** Cùng embedding SigLIP, giảm chiều bằng PCA cho kết quả gần như đoán bừa (0.56). UMAP giữ cấu trúc cụm cục bộ nên tách được 2 đội (0.92). Màu áo trung bình cũng không đủ (0.62), vì ánh sáng, bóng đổ và số áo làm màu bị lệch.
+- **KMeans 3 cụm sửa được trường hợp thất bại hoàn toàn.** Ở SNMOT-063, KMeans(2) chia thành "cầu thủ" và "trọng tài áo vàng" thay vì chia 2 đội (accuracy 0.503). Nguyên nhân là trọng tài và thủ môn bị detector gán nhầm thành player, mà màu áo của họ khác biệt nhất. Với 3 cụm, cụm thứ 3 hút nhóm này, còn 2 cụm lớn nhất là 2 đội; sequence tệ nhất tăng từ 0.503 lên 0.754.
+- **Bỏ phiếu phải theo cửa sổ trượt.** Chỉ lấy 10 dự đoán đầu rồi chốt nhãn làm accuracy *giảm* so với từng crop (0.939 → 0.890), vì khi tracker tráo ID giữa 2 cầu thủ khác đội, nhãn cũ bị giữ đến hết track. Lấy đa số trong 5–15 dự đoán gần nhất thì vote tốt hơn từng crop. Mặc định chọn 15: chênh với 5 không đáng kể (0.940 so với 0.944) mà nhãn ít nhấp nháy hơn.
+- **Thủ môn chưa đánh giá được.** Trên SoccerNet, detector gần như không bao giờ gán class goalkeeper (vd SNMOT-063: 2 detection goalkeeper so với 12253 player), dù trên val Roboflow goalkeeper đạt AP50 0.987. Thủ môn bị coi là player và bị phân đội theo màu áo, mà áo thủ môn khác đồng đội nên thường bị xếp sai đội hoặc rơi vào cụm thứ 3.
+
 ## Phân tích lỗi & hạn chế
 
-<!-- TODO: ID switch xảy ra khi nào, bóng mất khi nào, phân đội sai khi nào -->
+Tổng hợp từ các phần đo ở trên, xếp theo mức ảnh hưởng:
+
+1. **Detector nhầm vai trò trên SoccerNet.** Trên val Roboflow, goalkeeper và referee có AP50 trên 0.97, nhưng trên SoccerNet detector gần như không bao giờ ra class goalkeeper, và đôi khi đổi chỗ referee ↔ player (thấy được trong demo: trọng tài giữa sân bị tô màu đội). Đây là khoảng cách domain giữa 2 bộ dữ liệu (val Roboflow chỉ có 27 thủ môn). Lỗi này lan sang phân đội: thủ môn và trọng tài bị nhầm thành player sẽ bị gán vào một đội. Hướng sửa: fine-tune thêm trên ảnh SoccerNet, vì `gameinfo.ini` có sẵn vai trò của từng tracklet.
+2. **ID switch còn lại cần ReID thật.** Sau khi chỉnh `new_track_thresh`, lỗi chính là cầu thủ ra khỏi khung hình khoảng 2–3 s rồi quay lại với ID mới, và tráo ID khi 2 người chồng lấn. ReID đang dùng (`yolo26n-cls`) là model phân loại ImageNet nên làm tệ hơn. Cần thử OSNet (BoxMOT).
+3. **Recall bóng chững lại ở khoảng 0.55.** Đổi cách inference (SAHI, hạ conf) không vượt được mức này. Giả thuyết là các frame bị bỏ sót là bóng bị che hoặc nhòe khi bay nhanh, cộng với tập train có ít bóng; chưa xác nhận bằng cách xem từng frame.
+4. **Phân đội thất bại khi trọng tài / thủ môn chiếm một cụm lớn.** KMeans 3 cụm sửa được phần lớn, nhưng sequence tệ nhất vẫn ở 0.754. Phân đội cũng chỉ được fit trong từng video và cần khoảng 25 s đầu để fit UMAP.
+5. **Tốc độ.** Trên GTX 1050 Ti, toàn bộ pipeline có phân đội chạy khoảng 1.1 FPS (SigLIP phân loại mọi cầu thủ mỗi frame). Không phân đội thì bị giới hạn bởi detect (4.4 FPS); riêng BoT-SORT chạy 31 FPS. Đánh giá trên tập train của SoccerNet (SNMOT-061 → 070) vì máy local chưa giải nén tập test; detector không train trên SoccerNet nên không lộ dữ liệu.
