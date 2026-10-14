@@ -2,7 +2,7 @@
 
     python scripts/infer_video.py --source data/clip.mp4 --weights outputs/best.pt
     python scripts/infer_video.py --source data/clip.mp4 --weights outputs/best.pt \
-        --tracker configs/botsort_reid.yaml --sahi --team --mot-out outputs/mot/clip.txt
+        --sahi --team --mot-out outputs/mot/clip.txt
 """
 import argparse
 import sys
@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--source", required=True)
     ap.add_argument("--weights", required=True)
     ap.add_argument("--output", default="outputs/annotated.mp4")
-    ap.add_argument("--tracker", default=str(ROOT / "configs" / "bytetrack.yaml"))
+    ap.add_argument("--tracker", default=str(ROOT / "configs" / "botsort_tuned.yaml"))
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--ball-conf", type=float, default=0.1)

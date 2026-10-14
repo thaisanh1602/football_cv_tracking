@@ -42,11 +42,11 @@ python scripts/infer_video.py --source data/clip.mp4 --weights yolo11n.pt --max-
 
 # Đầy đủ
 python scripts/infer_video.py --source data/clip.mp4 --weights outputs/best.pt \
-    --tracker configs/botsort_reid.yaml --sahi --team --mot-out outputs/mot/clip.txt
+    --sahi --team --mot-out outputs/mot/clip.txt
 
 # Đánh giá trên subset SoccerNet-Tracking
 python scripts/eval_soccernet.py --data-root data/SoccerNet/tracking/test --weights outputs/best.pt \
-    --tracker configs/bytetrack.yaml --limit 10
+    --trackers configs/bytetrack.yaml configs/botsort_tuned.yaml --limit 10
 ```
 
 ## Kết quả
@@ -90,15 +90,42 @@ Kết luận:
 - **Hạ conf + lọc bằng tracker hiệu quả ngang SAHI mà nhanh gấp khoảng 3 lần.** Hạ ngưỡng bóng xuống 0.1 kéo recall lên mức của SAHI. BallTracker (giữ 1 bóng/frame, loại điểm nhảy xa) đưa precision từ 0.789 lên 0.894. Đây là cấu hình mặc định; SAHI để tùy chọn `--sahi`.
 - **Recall chững lại ở khoảng 0.55 với mọi cấu hình**, nên giới hạn không nằm ở độ phân giải. Giả thuyết: các frame bị bỏ sót là frame khó (bóng bị che, bị nhòe khi bay nhanh, nằm sát vạch trắng) và tập train có quá ít bóng (val chỉ có 35 instance). Nếu đúng, thêm dữ liệu bóng để train sẽ có tác dụng hơn đổi cách inference. Cần xem lại các frame bị bỏ sót để xác nhận.
 
-### Tracking (SoccerNet-Tracking test, 10 sequence)
+### Tracking
 
-| Tracker | HOTA | IDF1 | IDSW | MOTA | FPS |
+Đo bằng `scripts/eval_soccernet.py` (TrackEval, chỉ tính người, không tính bóng). Mọi tracker nhận **cùng một bộ detection** (đã cache) nên khác biệt chỉ đến từ tracker. Tham số được chọn trên SNMOT-061 → 065 (tập tinh chỉnh), còn bảng dưới đo trên **SNMOT-066 → 070, tập không dùng khi tinh chỉnh**. FPS là FPS của riêng tracker (không tính detect) trên GTX 1050 Ti.
+
+| Tracker | HOTA | IDF1 | IDSW | MOTA | FPS tracker |
 |---|---|---|---|---|---|
-| ByteTrack | | | | | |
-| BoT-SORT (GMC, no ReID) | | | | | |
-| BoT-SORT + ReID | | | | | |
+| ByteTrack (mặc định Ultralytics) | 43.1 | 46.1 | 1113 | 71.1 | 356 |
+| BoT-SORT (GMC) | 46.4 | 52.3 | 921 | 70.9 | 29 |
+| BoT-SORT + ReID `yolo26n-cls` | 47.6 | 53.7 | 1251 | 67.7 | 8 |
+| ByteTrack, `new_track_thresh` 0.8 | 51.1 | 59.3 | 318 | 78.9 | **547** |
+| **BoT-SORT, `new_track_thresh` 0.8** (`configs/botsort_tuned.yaml`, mặc định) | **53.6** | 64.5 | 257 | **79.1** | 31 |
+| BoT-SORT, `new_track_thresh` 0.85 | 52.8 | **64.8** | 229 | 76.8 | 31 |
+| BoT-SORT, `new_track_thresh` 0.9 | 48.5 | 63.2 | **172** | 67.1 | 31 |
+| BoT-SORT + ReID, `new_track_thresh` 0.8 | 51.9 | 61.8 | 459 | 77.3 | 8 |
 
-Mốc tham khảo: `yolo11n.pt` COCO + ByteTrack trên SNMOT-061 (train) đạt HOTA 40.8 / IDF1 43.3 / IDSW 190.
+Kết quả trên tập tinh chỉnh cùng xu hướng (BoT-SORT mặc định 47.2 → 52.6 HOTA với ngưỡng 0.8), nên cấu hình được chọn không bị overfit.
+
+**Thay đổi quan trọng nhất là một tham số:** `new_track_thresh` 0.25 → 0.8 giảm ID switch 72% (921 → 257) và tăng HOTA 7.2 điểm. GMC đóng góp thêm khoảng 2.5 HOTA, còn ReID làm kết quả xấu đi.
+
+#### Vì sao: phân loại ID switch (`scripts/analyze_idsw.py`)
+
+Mỗi frame ghép GT ↔ track (Hungarian, IoU ≥ 0.5, ưu tiên giữ cặp cũ như TrackEval) rồi phân loại mỗi lần một người đổi ID. Tổng số đếm được khớp với TrackEval (899 so với 921).
+
+| Nguyên nhân | BoT-SORT mặc định | BoT-SORT 0.8 |
+|---|---|---|
+| Track cũ đứt, track mới thay ngay (frame trước còn đúng) | **443** | **19** |
+| Track mới sau khi mất dấu | 209 | 109 |
+| Tráo ID với người khác | 132 | 90 |
+| 2 track cùng bám 1 người | 115 | 34 |
+| *Trong đó: xảy ra khi đang chồng lấn người khác* | *401* | *150* |
+
+- **Nguyên nhân chính là track thừa từ detection conf thấp.** Khi một detection không ghép được với track (do dự đoán Kalman lệch), ngưỡng 0.25 cho phép nó sinh ngay một ID mới, và ID mới này thường thắng track cũ ở frame sau. Detector có precision 0.99 với người nên đòi conf ≥ 0.8 mới tạo track chỉ loại nhiễu mà hầu như không bỏ sót người thật. Tới 0.9 thì bắt đầu bỏ sót cầu thủ mới vào khung hình (MOTA giảm 12 điểm).
+- **Giả thuyết bị loại:** tắt `fuse_score` làm HOTA giảm 47.2 → 44.0; hạ conf người xuống 0.1 để dùng tầng ghép thứ 2 của ByteTrack thì HOTA không tăng mà tracker chậm hơn.
+- **Lỗi còn lại cần ReID thật:** sau khi chỉnh ngưỡng, lỗi chủ yếu là mất dấu lâu rồi ra ID mới (trung vị 67 frame ≈ 2.7 s, dài hơn `track_buffer` 50 frame: cầu thủ ra khỏi khung hình rồi quay lại) và tráo ID khi chồng lấn. IoU + Kalman không giải quyết được hai loại này.
+
+**Hạn chế:** ReID trong bảng dùng `yolo26n-cls.pt`, một model phân loại ImageNet, không phải model ReID được train cho người. Embedding của nó không phân biệt được cầu thủ cùng đội mặc áo giống nhau, nên ReID tăng tráo ID thay vì giảm. Kết luận "ReID không giúp" chỉ đúng với model này. Cần thử lại với model ReID thật (vd OSNet qua BoxMOT).
 
 ## Phân tích lỗi & hạn chế
 
