@@ -79,13 +79,13 @@ def stack_radar(frame: np.ndarray, radar_img: np.ndarray, width_ratio: float = 0
     return np.vstack([frame, band])
 
 
-def overlay_radar(frame: np.ndarray, radar_img: np.ndarray, width_ratio: float = 0.4, alpha: float = 0.85) -> np.ndarray:
-    """Chồng radar vào giữa phía dưới khung hình."""
+def overlay_radar(frame: np.ndarray, radar_img: np.ndarray, width_ratio: float = 0.3, alpha: float = 0.85) -> np.ndarray:
+    """Chồng radar vào góc dưới bên phải (đặt giữa thì che mất cầu thủ ở nửa dưới khung hình)."""
     h, w = frame.shape[:2]
     rw = int(w * width_ratio)
     rh = int(radar_img.shape[0] * rw / radar_img.shape[1])
     small = cv2.resize(radar_img, (rw, rh), interpolation=cv2.INTER_AREA)
-    x0, y0 = (w - rw) // 2, h - rh - 10
+    x0, y0 = w - rw - 10, h - rh - 10
     roi = frame[y0 : y0 + rh, x0 : x0 + rw]
     frame[y0 : y0 + rh, x0 : x0 + rw] = cv2.addWeighted(small, alpha, roi, 1 - alpha, 0)
     return frame
