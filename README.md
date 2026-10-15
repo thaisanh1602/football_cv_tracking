@@ -22,7 +22,8 @@ src/
   tracking/     trackers.py (bọc tracker Ultralytics), ball_tracker.py
   team/         team_classifier.py (SigLIP + UMAP + KMeans, TeamAssigner)
   pitch/        config.py (sân FIFA 105×68 m, 32 keypoint, flip_idx), keypoints.py (YOLO-pose),
-                homography.py (RANSAC + kiểm tra H + làm mượt One-Euro + phát hiện cắt cảnh), radar.py
+                homography.py (RANSAC + kiểm tra H + làm mượt One-Euro + phát hiện cắt cảnh), radar.py,
+                kinematics.py (tốc độ, quãng đường)
   eval/         export_mot.py, run_trackeval.py (HOTA / IDF1 / IDSW)
   viz/          annotate.py
   utils/        label_mapping.py
@@ -167,6 +168,23 @@ GT có độ rung 0.5 cm/frame² (người thật chạy mượt).
 - **Loại H vô lý:** vùng cỏ của ảnh phải chiếu vào trong sân (cho phép lệch 30 m). Bước này loại các frame có 4–5 keypoint mà một điểm sai, vốn đẩy sai số trung bình lên 35 m. Ngưỡng 15 m loại oan cảnh quay sát khung thành (góc ảnh rơi vào khán đài).
 - **Làm mượt:** chiếu một lưới điểm cố định trên ảnh ra sân, lọc toạ độ (m) bằng One-Euro, fit lại H; giữ H cũ tối đa 1 s khi không có H tốt, reset khi phát hiện cắt cảnh. Rung giảm khoảng 2.3 lần (23.1 → 10.1) và phủ tăng 32% → 46%, đổi lại sai số tăng nhẹ do frame giữ H cũ và độ trễ khi camera lia. Bản đầu neo lưới trên sân: điểm sân ngoài khung hình chiếu vào ảnh rất bất ổn, làm rung tăng thay vì giảm.
 - **Giới hạn: chỉ khoảng một nửa số frame có H.** 46% frame có dưới 4 keypoint tin cậy (camera quay giữa sân chỉ thấy vạch giữa + vòng tròn), 20% có keypoint sai. Bộ 32 điểm thưa ở giữa sân; cần thêm điểm (vd trên vòng tròn giữa sân) hoặc train thêm.
+
+### Tốc độ và quãng đường
+
+Đo bằng `scripts/eval_kinematics.py` trên cùng 3 clip GSR test: chiếu điểm chân GT qua H của mình rồi so tốc độ / quãng đường với vị trí thật trên sân, xử lý GT bằng đúng cách tính đó. Track ID lấy từ GT nên chỉ đo lỗi homography + cách tính động học, chưa gồm lỗi tracker. Chỉ tính track dài từ 2 s.
+
+| Cách tính | Sai số tốc độ TB | Trung vị | Track có lúc > 36 km/h | Sai số quãng đường |
+|---|---|---|---|---|
+| Từ 2 frame liên tiếp, H thô | 30.3 km/h | 9.5 km/h | 100% | +500% |
+| Từ 2 frame liên tiếp, H mượt | 13.3 km/h | 5.5 km/h | 96% | +151% |
+| Savitzky-Golay 2 s + cắt đoạn, H thô | **1.5 km/h** | **0.9 km/h** | 0% | +23% |
+| **Savitzky-Golay 2 s + cắt đoạn, H mượt** (mặc định) | 2.2 km/h | 1.3 km/h | 0% | **+17%** |
+
+- **Không tính tốc độ từ 2 frame liên tiếp.** Nhiễu vị trí vài chục cm giữa 2 frame cách nhau 0.04 s thành hàng chục km/h, và mọi dao động bị cộng vào quãng đường (+500%). `src/pitch/kinematics.py` làm mượt quỹ đạo bằng Savitzky-Golay (đa thức bậc 2, cửa sổ 2 s) và lấy đạo hàm của đa thức. Cửa sổ 1 s vẫn còn 22–29% track vượt 36 km/h; cửa sổ 3 s chỉ tốt hơn chút ít mà làm phẳng các pha bứt tốc ngắn.
+- **Cắt quỹ đạo tại chỗ "dịch chuyển tức thời"** (nhanh hơn 12 m/s cộng 2 m biên nhiễu, hoặc mất dấu quá 0.5 s): không nối qua ID switch hay H hỏng, nếu không 1 cú nhảy 20 m cộng thẳng vào quãng đường.
+- **Quãng đường vẫn dư khoảng 17%:** dao động còn sót lại của H vẫn cộng thêm độ dài. Đây là sai số tương đối, GT cũng được làm mượt cùng cách nên tốc độ đỉnh của pha nước rút bị làm phẳng ở cả hai phía.
+- H thô cho tốc độ chính xác hơn H mượt (1.5 so với 2.2 km/h) vì bộ lọc động học đã tự làm mượt, còn H mượt thêm độ trễ và các frame giữ H cũ. Nhưng H thô chỉ phủ 32% frame so với 46%, và quỹ đạo bị cắt vụn hơn (6.9 so với 3.3 đoạn/track), nên mặc định dùng H mượt.
+- Bản chạy theo frame cho video (`OnlineKinematics`) fit đường thẳng trên 2 s gần nhất: trên quỹ đạo giả lập 18 km/h có nhiễu 30 cm cho 17.9 km/h, và bỏ qua cú nhảy 28 m.
 
 ## Phân tích lỗi & hạn chế
 
