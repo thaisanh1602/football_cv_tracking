@@ -150,6 +150,24 @@ Mỗi frame ghép GT ↔ track (Hungarian, IoU ≥ 0.5, ưu tiên giữ cặp c�
 - **Bỏ phiếu phải theo cửa sổ trượt.** Chỉ lấy 10 dự đoán đầu rồi chốt nhãn làm accuracy *giảm* so với từng crop (0.939 → 0.890), vì khi tracker tráo ID giữa 2 cầu thủ khác đội, nhãn cũ bị giữ đến hết track. Lấy đa số trong 5–15 dự đoán gần nhất thì vote tốt hơn từng crop. Mặc định chọn 15: chênh với 5 không đáng kể (0.940 so với 0.944) mà nhãn ít nhấp nháy hơn.
 - **Thủ môn chưa đánh giá được.** Trên SoccerNet, detector gần như không bao giờ gán class goalkeeper (vd SNMOT-063: 2 detection goalkeeper so với 12253 player), dù trên val Roboflow goalkeeper đạt AP50 0.987. Thủ môn bị coi là player và bị phân đội theo màu áo, mà áo thủ môn khác đồng đội nên thường bị xếp sai đội hoặc rơi vào cụm thứ 3.
 
+### Radar: hình học sân
+
+Đo bằng `scripts/eval_pitch.py` trên SoccerNet **GSR test** (SNGS-116 → 118, 2250 frame). GSR có vị trí chân thật của từng người trên sân (mét). Để đo riêng homography, không lẫn lỗi detector, lấy điểm chân GT trên ảnh chiếu qua H của mình rồi so với vị trí thật. Sân chuẩn FIFA 105×68 m (`src/pitch/config.py`).
+
+| Model keypoint | Homography | Phủ frame | Sai số TB | Trung vị | ≤ 1 m | ≤ 2 m | Rung trung vị (cm/frame²) |
+|---|---|---|---|---|---|---|---|
+| Roboflow (có sẵn) | H thô | 60% | 8.25 m | 5.87 m | 6% | 14% | 92.1 |
+| **Tự train (+ nhãn GSR)** | H thô | 32% | **1.63 m** | **1.27 m** | 39% | 72% | 23.1 |
+| **Tự train (+ nhãn GSR)** | One-Euro (mặc định) | **46%** | 2.22 m | 1.57 m | 30% | 63% | **10.1** |
+
+GT có độ rung 0.5 cm/frame² (người thật chạy mượt).
+
+- **Model keypoint có sẵn sai vài mét trên SoccerNet.** Đo từng keypoint bằng H tính từ GT: góc sân xa lệch khoảng 11 m dù conf cao, vòng cấm lệch 1–4 m. Không bước hậu xử lý nào sửa được keypoint sai (đã thử RANSAC theo pixel/mét, bỏ điểm góc, lật nhãn trái/phải).
+- **Sinh nhãn cùng domain từ GSR** (`scripts/make_pitch_labels_gsr.py`): fit H bằng DLT gộp chân người (ảnh ↔ sân) với các điểm nằm trên vạch sân đã vẽ tay (vd biên dọc Y = 0). Kiểm định chéo: H gộp khớp trung vị 0.14 m, còn chỉ dùng vạch sân thì p90 lên 31 m. Train `yolo11m-pose` trên Roboflow + khoảng 1000 ảnh GSR train (không trùng clip test): sai số trung vị **5.87 m → 1.27 m**.
+- **Loại H vô lý:** vùng cỏ của ảnh phải chiếu vào trong sân (cho phép lệch 30 m). Bước này loại các frame có 4–5 keypoint mà một điểm sai, vốn đẩy sai số trung bình lên 35 m. Ngưỡng 15 m loại oan cảnh quay sát khung thành (góc ảnh rơi vào khán đài).
+- **Làm mượt:** chiếu một lưới điểm cố định trên ảnh ra sân, lọc toạ độ (m) bằng One-Euro, fit lại H; giữ H cũ tối đa 1 s khi không có H tốt, reset khi phát hiện cắt cảnh. Rung giảm khoảng 2.3 lần (23.1 → 10.1) và phủ tăng 32% → 46%, đổi lại sai số tăng nhẹ do frame giữ H cũ và độ trễ khi camera lia. Bản đầu neo lưới trên sân: điểm sân ngoài khung hình chiếu vào ảnh rất bất ổn, làm rung tăng thay vì giảm.
+- **Giới hạn: chỉ khoảng một nửa số frame có H.** 46% frame có dưới 4 keypoint tin cậy (camera quay giữa sân chỉ thấy vạch giữa + vòng tròn), 20% có keypoint sai. Bộ 32 điểm thưa ở giữa sân; cần thêm điểm (vd trên vòng tròn giữa sân) hoặc train thêm.
+
 ## Phân tích lỗi & hạn chế
 
 Tổng hợp từ các phần đo ở trên, xếp theo mức ảnh hưởng:

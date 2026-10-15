@@ -79,15 +79,16 @@ def run_variant(xy, conf, people, n_frames, smoother, signs, min_conf):
     return np.array(errors), covered, tracks
 
 
-def jitter_cm(tracks) -> tuple[float, float]:
-    """|x[t] - 2x[t-1] + x[t-2]| trung bình trên các đoạn 3 frame liên tiếp, của dự đoán và của GT (cm)."""
+def jitter_cm(tracks) -> tuple[float, float, float]:
+    """|x[t] - 2x[t-1] + x[t-2]| trên các đoạn 3 frame liên tiếp (cm): TB dự đoán, trung vị dự đoán, TB GT.
+    TB bị vài frame H hỏng chi phối; trung vị phản ánh độ rung "thường ngày" người xem thấy."""
     pred_acc, gt_acc = [], []
     for seq in tracks.values():
         for (f0, p0, g0), (f1, p1, g1), (f2, p2, g2) in zip(seq, seq[1:], seq[2:]):
             if f2 - f0 == 2:
                 pred_acc.append(np.linalg.norm(p2 - 2 * p1 + p0))
                 gt_acc.append(np.linalg.norm(g2 - 2 * g1 + g0))
-    return float(np.mean(pred_acc)) * 100, float(np.mean(gt_acc)) * 100
+    return float(np.mean(pred_acc)) * 100, float(np.median(pred_acc)) * 100, float(np.mean(gt_acc)) * 100
 
 
 def summarize(errors, covered, n_frames, jit):
@@ -98,7 +99,8 @@ def summarize(errors, covered, n_frames, jit):
         "within_1m": round(float((errors <= 1).mean()), 3),
         "within_2m": round(float((errors <= 2).mean()), 3),
         "jitter_cm": round(jit[0], 1),
-        "jitter_gt_cm": round(jit[1], 1),
+        "jitter_median_cm": round(jit[1], 1),
+        "jitter_gt_cm": round(jit[2], 1),
     }
 
 
@@ -149,11 +151,11 @@ def main():
         results[name] = summarize(np.concatenate(all_err), all_cov, all_n, jitter_cm(all_tracks))
 
     print(f"\n{len(clips)} clip GSR: {', '.join(clips)}\n")
-    print("| Homography | Phủ frame | Sai số TB (m) | Trung vị (m) | ≤ 1 m | ≤ 2 m | Rung (cm/frame²) |")
-    print("|---|---|---|---|---|---|---|")
+    print("| Homography | Phủ frame | Sai số TB (m) | Trung vị (m) | ≤ 1 m | ≤ 2 m | Rung TB | Rung trung vị (cm/frame²) |")
+    print("|---|---|---|---|---|---|---|---|")
     for name, r in results.items():
-        print(f"| {name} | {r['coverage']:.0%} | {r['mean_m']} | {r['median_m']} | {r['within_1m']:.0%} | {r['within_2m']:.0%} | {r['jitter_cm']} |")
-    print(f"| *GT (tham chiếu)* | | | | | | *{results['H thô']['jitter_gt_cm']}* |")
+        print(f"| {name} | {r['coverage']:.0%} | {r['mean_m']} | {r['median_m']} | {r['within_1m']:.0%} | {r['within_2m']:.0%} | {r['jitter_cm']} | {r['jitter_median_cm']} |")
+    print(f"| *GT (tham chiếu)* | | | | | | *{results['H thô']['jitter_gt_cm']}* | |")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
