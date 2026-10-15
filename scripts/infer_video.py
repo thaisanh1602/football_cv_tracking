@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--pitch-weights", default=None, help="model keypoint sân -> vẽ radar 2D")
     ap.add_argument("--pitch-imgsz", type=int, default=1280, help="imgsz lúc train model keypoint sân")
     ap.add_argument("--no-smooth", action="store_true", help="tắt làm mượt homography (để so sánh độ rung)")
+    ap.add_argument("--radar-layout", choices=["stack", "overlay"], default="stack", help="radar dưới video hoặc chồng lên")
     ap.add_argument("--max-frames", type=int, default=None, help="chỉ chạy N frame đầu (debug)")
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
@@ -76,7 +77,7 @@ def main():
     if args.pitch_weights:
         from src.pitch.homography import PitchMapper
         from src.pitch.keypoints import PitchKeypointDetector
-        from src.pitch.radar import Radar, overlay_radar
+        from src.pitch.radar import Radar, overlay_radar, stack_radar
 
         from src.pitch.kinematics import OnlineKinematics
 
@@ -84,6 +85,9 @@ def main():
         trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=int(video_info.fps)))
         pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
         radar = Radar()
+        if args.radar_layout == "stack":  # khung hình cao thêm phần radar
+            probe = stack_radar(np.zeros((video_info.height, video_info.width, 3), np.uint8), radar.base)
+            video_info.height = probe.shape[0]
 
     if args.max_frames:
         video_info.total_frames = min(video_info.total_frames or args.max_frames, args.max_frames)
@@ -117,7 +121,7 @@ def main():
 
             out = annotator.annotate(frame, people, ball, teams, speeds)
             if radar_img is not None:
-                out = overlay_radar(out, radar_img)
+                out = stack_radar(out, radar_img) if args.radar_layout == "stack" else overlay_radar(out, radar_img)
             sink.write_frame(out)
             if mot:
                 mot.write(i + 1, people)

@@ -68,6 +68,17 @@ class Radar:
         return img
 
 
+def stack_radar(frame: np.ndarray, radar_img: np.ndarray, width_ratio: float = 0.5) -> np.ndarray:
+    """Đặt radar dưới khung hình (không che cầu thủ), căn giữa trên nền tối."""
+    h, w = frame.shape[:2]
+    rw = int(w * width_ratio)
+    rh = int(radar_img.shape[0] * rw / radar_img.shape[1])
+    band = np.full((rh + 20, w, 3), 20, dtype=np.uint8)
+    x0 = (w - rw) // 2
+    band[10 : 10 + rh, x0 : x0 + rw] = cv2.resize(radar_img, (rw, rh), interpolation=cv2.INTER_AREA)
+    return np.vstack([frame, band])
+
+
 def overlay_radar(frame: np.ndarray, radar_img: np.ndarray, width_ratio: float = 0.4, alpha: float = 0.85) -> np.ndarray:
     """Chồng radar vào giữa phía dưới khung hình."""
     h, w = frame.shape[:2]
