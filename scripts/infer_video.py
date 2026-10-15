@@ -6,6 +6,7 @@
 """
 import argparse
 import sys
+from collections import defaultdict, deque
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -77,6 +78,10 @@ def main():
         from src.pitch.keypoints import PitchKeypointDetector
         from src.pitch.radar import Radar, overlay_radar
 
+        from src.pitch.kinematics import OnlineKinematics
+
+        kinematics = OnlineKinematics(fps=video_info.fps)
+        trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=int(video_info.fps)))
         pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
         radar = Radar()
 
@@ -95,12 +100,24 @@ def main():
             ball = ball_tracker.update(ball)
             teams = team_assigner.assign(frame, people) if team_assigner else None
 
-            out = annotator.annotate(frame, people, ball, teams)
-            if pitch_mapper and pitch_mapper.update(frame) is not None:
-                feet = pitch_mapper.to_pitch(people.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)) if len(people) else np.empty((0, 2))
-                ball_m = pitch_mapper.to_pitch(ball.get_anchors_coordinates(sv.Position.CENTER)) if len(ball) else None
-                radar_teams = teams if teams is not None else np.where(people.class_id == REFEREE_ID, 2, 3)
-                out = overlay_radar(out, radar.draw(feet, radar_teams, ball_m))
+            speeds = None
+            radar_img = None
+            if pitch_mapper:
+                if pitch_mapper.update(frame) is not None:
+                    feet = pitch_mapper.to_pitch(people.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)) if len(people) else np.empty((0, 2))
+                    ball_m = pitch_mapper.to_pitch(ball.get_anchors_coordinates(sv.Position.CENTER)) if len(ball) else None
+                    ids = people.tracker_id if len(people) else []
+                    speeds = kinematics.update(i, ids, feet)
+                    for tid, p in zip(ids, feet):
+                        trails[tid].append(p)
+                    radar_teams = teams if teams is not None else np.where(people.class_id == REFEREE_ID, 2, 3)
+                    radar_img = radar.draw(feet, radar_teams, ball_m, [np.array(trails[t]) for t in ids])
+                else:
+                    radar_img = radar.empty()
+
+            out = annotator.annotate(frame, people, ball, teams, speeds)
+            if radar_img is not None:
+                out = overlay_radar(out, radar_img)
             sink.write_frame(out)
             if mot:
                 mot.write(i + 1, people)

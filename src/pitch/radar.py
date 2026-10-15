@@ -6,6 +6,7 @@ from src.pitch.config import PITCH, PitchConfig
 # BGR, cùng thứ tự màu với src/viz/annotate.py: đội 0, đội 1, trọng tài, chưa rõ
 TEAM_COLORS_BGR = [(255, 191, 0), (147, 20, 255), (0, 215, 255), (170, 170, 170)]
 BALL_COLOR_BGR = (255, 255, 255)
+GRASS_BGR = (34, 139, 34)
 
 
 class Radar:
@@ -22,7 +23,7 @@ class Radar:
     def _draw_pitch(self) -> np.ndarray:
         p, s = self.pitch, self.scale
         h, w = int(p.width * s) + 2 * self.padding, int(p.length * s) + 2 * self.padding
-        img = np.full((h, w, 3), (34, 139, 34), dtype=np.uint8)
+        img = np.full((h, w, 3), GRASS_BGR, dtype=np.uint8)
         v = self.to_px(p.vertices)
         for a, b in p.edges:
             cv2.line(img, tuple(v[a]), tuple(v[b]), (255, 255, 255), 2, cv2.LINE_AA)
@@ -32,9 +33,25 @@ class Radar:
             cv2.circle(img, tuple(spot), 3, (255, 255, 255), -1, cv2.LINE_AA)
         return img
 
-    def draw(self, xy_m: np.ndarray, teams: np.ndarray | None = None, ball_m: np.ndarray | None = None) -> np.ndarray:
+    def draw(
+        self,
+        xy_m: np.ndarray,
+        teams: np.ndarray | None = None,
+        ball_m: np.ndarray | None = None,
+        trails: list[np.ndarray] | None = None,
+    ) -> np.ndarray:
+        """trails: với mỗi người, các vị trí gần đây (m) theo thứ tự thời gian -> vẽ vệt mờ dần."""
         img = self.base.copy()
         teams = np.full(len(xy_m), 3) if teams is None else np.where(teams < 0, 3, teams)
+        if trails is not None:
+            for trail, t in zip(trails, teams):
+                if len(trail) < 2:
+                    continue
+                px = self.to_px(trail)
+                for k in range(1, len(px)):
+                    a = k / len(px)  # cũ -> hoà vào màu cỏ, mới -> màu đội
+                    color = tuple(int(c * a + g * (1 - a)) for c, g in zip(TEAM_COLORS_BGR[t], GRASS_BGR))
+                    cv2.line(img, tuple(px[k - 1]), tuple(px[k]), color, 2, cv2.LINE_AA)
         for pt, t in zip(self.to_px(xy_m), teams):
             cv2.circle(img, tuple(pt), 8, TEAM_COLORS_BGR[t], -1, cv2.LINE_AA)
             cv2.circle(img, tuple(pt), 8, (0, 0, 0), 1, cv2.LINE_AA)
@@ -42,6 +59,12 @@ class Radar:
             for pt in self.to_px(ball_m):
                 cv2.circle(img, tuple(pt), 5, BALL_COLOR_BGR, -1, cv2.LINE_AA)
                 cv2.circle(img, tuple(pt), 5, (0, 0, 0), 1, cv2.LINE_AA)
+        return img
+
+
+    def empty(self, message: str = "Khong du vach san de dung radar") -> np.ndarray:
+        img = (self.base * 0.6).astype(np.uint8)
+        cv2.putText(img, message, (self.padding + 20, img.shape[0] // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
         return img
 
 
