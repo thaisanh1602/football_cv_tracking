@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from src.detection.ball_sahi import SlicedBallDetector  # noqa: E402
 from src.detection.detector import Detector, split_people_ball  # noqa: E402
 from src.eval.export_mot import MOTWriter  # noqa: E402
+from src.export.annotations import AnnotationWriter  # noqa: E402
 from src.tracking.ball_tracker import BallTracker  # noqa: E402
 from src.tracking.trackers import PeopleTracker  # noqa: E402
 from src.utils.label_mapping import PLAYER_ID, REFEREE_ID  # noqa: E402
@@ -57,6 +58,8 @@ def main():
     ap.add_argument("--seg", action="store_true", help="tô bóng người (mask YOLO-seg) theo màu đội")
     ap.add_argument("--seg-weights", default="yolo11m-seg.pt")
     ap.add_argument("--mask-alpha", type=float, default=0.5, help="EMA mask theo track: 1.0 = mask gốc từng frame, nhỏ hơn = ổn định hơn")
+    ap.add_argument("--json-out", default=None, help="ghi annotation JSON cho web (src/export/annotations.py)")
+    ap.add_argument("--no-video", action="store_true", help="không vẽ / ghi video (worker chỉ cần JSON)")
     ap.add_argument("--max-frames", type=int, default=None, help="chỉ chạy N frame đầu (debug)")
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
@@ -76,6 +79,7 @@ def main():
         team_assigner = TeamAssigner(classifier)
 
     video_info = sv.VideoInfo.from_video_path(args.source)
+    src_w, src_h = video_info.width, video_info.height  # kích thước gốc (bố cục stack làm video ghi ra cao hơn)
 
     segmenter = mask_stab = None
     if args.seg:
@@ -96,7 +100,8 @@ def main():
 
         kinematics = OnlineKinematics(fps=video_info.fps)
         # Kalman vận tốc không đổi theo từng cầu thủ: trên GSR giảm rung radar 10.1 -> 1.0 cm/frame², sai số +3 cm
-        radar_filter = None if args.no_radar_filter else TrackFilterBank(lambda: KalmanCV(fps=video_info.fps, accel_std=2.0), fps=video_info.fps)
+        # luôn tính (JSON cần cả vị trí thô lẫn đã lọc); --no-radar-filter chỉ quyết định video vẽ bản nào
+        radar_filter = TrackFilterBank(lambda: KalmanCV(fps=video_info.fps, accel_std=2.0), fps=video_info.fps)
         trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=int(video_info.fps)))
         pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
         radar = Radar()
@@ -109,7 +114,9 @@ def main():
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
     frames = sv.get_video_frames_generator(args.source, end=args.max_frames)
-    with sv.VideoSink(args.output, video_info) as sink, (MOTWriter(args.mot_out) if args.mot_out else nullcontext()) as mot:
+    writer = AnnotationWriter(args.json_out, video_info.fps, src_w, src_h) if args.json_out else None
+    sink_ctx = nullcontext() if args.no_video else sv.VideoSink(args.output, video_info)
+    with sink_ctx as sink, (MOTWriter(args.mot_out) if args.mot_out else nullcontext()) as mot:
         for i, frame in enumerate(tqdm(frames, total=video_info.total_frames, desc="Tracking")):
             people, ball = split_people_ball(detector(frame))
             if ball_detector:
@@ -124,7 +131,7 @@ def main():
                 if args.mask_alpha < 1.0:
                     masks = [None if m is None else mask_stab.update(i, int(t), m, b) for m, t, b in zip(masks, people.tracker_id, people.xyxy)]
 
-            speeds = None
+            speeds = feet_raw = feet_kf = ball_m = None
             radar_img = None
             if pitch_mapper:
                 if pitch_mapper.update(frame) is not None:
@@ -132,8 +139,9 @@ def main():
                     ball_m = pitch_mapper.to_pitch(ball.get_anchors_coordinates(sv.Position.CENTER)) if len(ball) else None
                     ids = people.tracker_id if len(people) else []
                     speeds = kinematics.update(i, ids, feet)  # tốc độ đã tự làm mượt (cửa sổ 2 s) trên vị trí chưa lọc
-                    if radar_filter is not None and len(feet):
-                        feet = radar_filter.update(i, ids, feet)
+                    feet_raw = feet
+                    feet_kf = radar_filter.update(i, ids, feet) if len(feet) else feet
+                    feet = feet_raw if args.no_radar_filter else feet_kf
                     for tid, p in zip(ids, feet):
                         trails[tid].append(p)
                     radar_teams = teams if teams is not None else np.where(people.class_id == REFEREE_ID, 2, 3)
@@ -141,14 +149,21 @@ def main():
                 else:
                     radar_img = radar.empty()
 
-            out = annotator.annotate(frame, people, ball, teams, speeds, masks)
-            if radar_img is not None:
-                out = stack_radar(out, radar_img) if args.radar_layout == "stack" else overlay_radar(out, radar_img)
-            sink.write_frame(out)
+            if writer:
+                writer.add(i, people, teams, speeds, feet_raw, feet_kf, ball, ball_m)
+            if sink is not None:
+                out = annotator.annotate(frame, people, ball, teams, speeds, masks)
+                if radar_img is not None:
+                    out = stack_radar(out, radar_img) if args.radar_layout == "stack" else overlay_radar(out, radar_img)
+                sink.write_frame(out)
             if mot:
                 mot.write(i + 1, people)
 
-    print(f"Đã ghi {args.output}")
+    if writer:
+        writer.close()
+        print(f"Đã ghi {args.json_out}")
+    if not args.no_video:
+        print(f"Đã ghi {args.output}")
 
 
 if __name__ == "__main__":
