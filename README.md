@@ -1,10 +1,23 @@
 # football-cv-tracking
 
-Detection + tracking cầu thủ / thủ môn / trọng tài / bóng trên video bóng đá broadcast, đánh giá trên SoccerNet-Tracking.
+Detection, tracking, phân đội và **radar 2D có tốc độ thật** cho video bóng đá broadcast. Mọi bước đều được đo trên SoccerNet (Tracking + Game State Reconstruction), không chỉ xem bằng mắt.
+
+![radar demo](assets/radar_demo.gif)
+
+*SoccerNet GSR SNGS-118: phân đội SigLIP + UMAP (xanh dương / hồng), trọng tài (vàng), tốc độ trên nhãn, radar 105×68 m có vệt di chuyển 1 s. Video 30 s đầy đủ: [YouTube](https://youtu.be/ZX-OKTKb3RY) (research demo, footage từ dataset SoccerNet).*
+
+| Thành phần | Kết quả chính (đo trên SoccerNet) |
+|---|---|
+| Tracking | BoT-SORT tinh chỉnh: HOTA 46.4 → **53.6**, ID switch **−72%** |
+| Phân đội | SigLIP + UMAP + KMeans(3): accuracy **0.94** (KMeans màu áo: 0.62) |
+| Radar | Sai số vị trí trung vị **1.27 m** (model keypoint có sẵn: 5.87 m) |
+| Tốc độ | Sai số trung vị **1.3 km/h** so với quỹ đạo thật |
+
+<details><summary>Demo tracking + phân đội (giai đoạn trước, SNMOT-060)</summary>
 
 ![demo](assets/demo.gif)
 
-*SoccerNet SNMOT-060, toàn bộ pipeline: BoT-SORT đã tinh chỉnh, phân đội SigLIP + UMAP (xanh dương / hồng), trọng tài (vàng), bóng (tam giác vàng). Video 30 s đầy đủ: <!-- TODO: link YouTube / Drive -->*
+</details>
 
 ## Pipeline
 
@@ -153,7 +166,7 @@ Mỗi frame ghép GT ↔ track (Hungarian, IoU ≥ 0.5, ưu tiên giữ cặp c�
 
 ### Radar: hình học sân
 
-Đo bằng `scripts/eval_pitch.py` trên SoccerNet **GSR test** (SNGS-116 → 118, 2250 frame). GSR có vị trí chân thật của từng người trên sân (mét). Để đo riêng homography, không lẫn lỗi detector, lấy điểm chân GT trên ảnh chiếu qua H của mình rồi so với vị trí thật. Sân chuẩn FIFA 105×68 m (`src/pitch/config.py`).
+Đo bằng `scripts/eval_pitch.py` trên SoccerNet **GSR test** (SNGS-116 → 118, 2250 frame). Chạy lại trên Kaggle (`notebooks/kaggle_eval.ipynb`) cho cùng kết quả trong khoảng ±0.01 m và ±1% phủ. GSR có vị trí chân thật của từng người trên sân (mét). Để đo riêng homography, không lẫn lỗi detector, lấy điểm chân GT trên ảnh chiếu qua H của mình rồi so với vị trí thật. Sân chuẩn FIFA 105×68 m (`src/pitch/config.py`).
 
 | Model keypoint | Homography | Phủ frame | Sai số TB | Trung vị | ≤ 1 m | ≤ 2 m | Rung trung vị (cm/frame²) |
 |---|---|---|---|---|---|---|---|
