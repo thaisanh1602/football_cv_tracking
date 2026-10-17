@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--pitch-weights", default=None, help="model keypoint sân -> vẽ radar 2D")
     ap.add_argument("--pitch-imgsz", type=int, default=1280, help="imgsz lúc train model keypoint sân")
     ap.add_argument("--no-smooth", action="store_true", help="tắt làm mượt homography (để so sánh độ rung)")
+    ap.add_argument("--no-radar-filter", action="store_true", help="tắt Kalman theo từng cầu thủ trên radar (bản 'trước' để so sánh)")
     ap.add_argument("--radar-layout", choices=["stack", "overlay"], default="stack", help="radar dưới video hoặc chồng lên")
     ap.add_argument("--max-frames", type=int, default=None, help="chỉ chạy N frame đầu (debug)")
     ap.add_argument("--device", default=None)
@@ -81,7 +82,11 @@ def main():
 
         from src.pitch.kinematics import OnlineKinematics
 
+        from src.stabilize.overlay_filter import KalmanCV, TrackFilterBank
+
         kinematics = OnlineKinematics(fps=video_info.fps)
+        # Kalman vận tốc không đổi theo từng cầu thủ: trên GSR giảm rung radar 10.1 -> 1.0 cm/frame², sai số +3 cm
+        radar_filter = None if args.no_radar_filter else TrackFilterBank(lambda: KalmanCV(fps=video_info.fps, accel_std=2.0), fps=video_info.fps)
         trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=int(video_info.fps)))
         pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
         radar = Radar()
@@ -111,7 +116,9 @@ def main():
                     feet = pitch_mapper.to_pitch(people.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)) if len(people) else np.empty((0, 2))
                     ball_m = pitch_mapper.to_pitch(ball.get_anchors_coordinates(sv.Position.CENTER)) if len(ball) else None
                     ids = people.tracker_id if len(people) else []
-                    speeds = kinematics.update(i, ids, feet)
+                    speeds = kinematics.update(i, ids, feet)  # tốc độ đã tự làm mượt (cửa sổ 2 s) trên vị trí chưa lọc
+                    if radar_filter is not None and len(feet):
+                        feet = radar_filter.update(i, ids, feet)
                     for tid, p in zip(ids, feet):
                         trails[tid].append(p)
                     radar_teams = teams if teams is not None else np.where(people.class_id == REFEREE_ID, 2, 3)

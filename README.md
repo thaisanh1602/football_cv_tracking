@@ -34,6 +34,7 @@ src/
   detection/    detector.py (YOLO -> sv.Detections, map class), ball_sahi.py (sliced inference cho bóng)
   tracking/     trackers.py (bọc tracker Ultralytics), ball_tracker.py
   team/         team_classifier.py (SigLIP + UMAP + KMeans, TeamAssigner)
+  stabilize/    camera_motion.py (bù chuyển động camera), metrics.py (rung), overlay_filter.py (Kalman / One-Euro theo track)
   pitch/        config.py (sân FIFA 105×68 m, 32 keypoint, flip_idx), keypoints.py (YOLO-pose),
                 homography.py (RANSAC + kiểm tra H + làm mượt One-Euro + phát hiện cắt cảnh), radar.py,
                 kinematics.py (tốc độ, quãng đường)
@@ -198,6 +199,35 @@ GT có độ rung 0.5 cm/frame² (người thật chạy mượt).
 - **Quãng đường vẫn dư khoảng 17%:** dao động còn sót lại của H vẫn cộng thêm độ dài. Đây là sai số tương đối, GT cũng được làm mượt cùng cách nên tốc độ đỉnh của pha nước rút bị làm phẳng ở cả hai phía.
 - H thô cho tốc độ chính xác hơn H mượt (1.5 so với 2.2 km/h) vì bộ lọc động học đã tự làm mượt, còn H mượt thêm độ trễ và các frame giữ H cũ. Nhưng H thô chỉ phủ 32% frame so với 46%, và quỹ đạo bị cắt vụn hơn (6.9 so với 3.3 đoạn/track), nên mặc định dùng H mượt.
 - Bản chạy theo frame cho video (`OnlineKinematics`) fit đường thẳng trên 2 s gần nhất: trên quỹ đạo giả lập 18 km/h có nhiễu 30 cm cho 17.9 km/h, và bỏ qua cú nhảy 28 m.
+
+### Chống rung overlay
+
+**Metric rung** (`src/stabilize/metrics.py`): gia tốc rời rạc của điểm neo overlay. Trên video, điểm neo là chân cầu thủ: bù chuyển động camera trước (affine từ optical flow trên nền, `src/stabilize/camera_motion.py`, khớp GMC của Ultralytics trong 0.5 px), rồi chia cho chiều cao box. Trên radar, điểm neo là vị trí trên sân (cm/frame²). Rung thấp chưa đủ, vì lọc mạnh thì mượt nhưng trễ, nên luôn báo cáo kèm sai số so với GT.
+
+**Overlay trên video** (`scripts/eval_overlay_jitter.py`, SNMOT-061 → 070, % chiều cao box):
+
+| Điểm neo ellipse | Rung trung vị | Rung p90 | Sai số so với GT |
+|---|---|---|---|
+| Detection thô | 2.53 | 8.51 | 4.26 |
+| Kalman của BoT-SORT (đang vẽ) | **1.49** | **4.91** | 4.20 |
+| GT (chú thích tay) | 1.62 | 7.26 | — |
+
+Kalman bên trong tracker đã đưa rung của ellipse xuống ngang mức GT (GT cũng rung vì toạ độ nguyên, chú thích tay). Bù camera ít ảnh hưởng tới rung trên ảnh vì gia tốc đã triệt tiêu chuyển động lia đều; nó chỉ có tác dụng khi camera tăng tốc hoặc zoom.
+
+**Radar** (`scripts/eval_radar_filter.py`, GSR test, bộ lọc nhân quả, sai số đã gồm độ trễ; GT rung 0.5 cm/frame²):
+
+| Homography + lọc vị trí từng cầu thủ | Sai số trung vị | Rung trung vị (cm/frame²) |
+|---|---|---|
+| H thô, không lọc | 1.27 m | 23.1 |
+| H thô + Kalman σa = 4 | 1.27 m | 2.3 |
+| H làm mượt (One-Euro), không lọc | 1.57 m | 10.1 |
+| H làm mượt + EMA α = 0.1 | 1.72 m | 1.0 |
+| H làm mượt + One-Euro | 1.62 m | 1.8 |
+| **H làm mượt + Kalman σa = 2** (mặc định) | **1.60 m** | **1.0** |
+
+- **Rung thật nằm ở radar, không ở ellipse:** chấm radar rung gấp 20–46 lần người thật, vì homography lệch vài pixel đã thành vài chục cm trên sân.
+- **Kalman vận tốc không đổi theo từng cầu thủ** (`src/stabilize/overlay_filter.py`), đặt sau homography: rung giảm **90%** (10.1 → 1.0 cm/frame², còn khoảng 2 lần mức người thật) mà sai số chỉ tăng 3 cm. Cùng mức rung, EMA trễ hơn 12 cm vì không có mô hình vận tốc. Bộ lọc tự reset khi track nhảy xa hơn mức chạy được (ID switch, H hỏng), không kéo chấm trượt qua sân.
+- Tốc độ hiển thị vẫn tính trên vị trí chưa lọc (Savitzky-Golay 2 s đã tự làm mượt), để không làm mượt hai lần.
 
 ## Phân tích lỗi & hạn chế
 
