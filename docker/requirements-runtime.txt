@@ -1,0 +1,17 @@
+# torch / torchvision cài riêng bản CPU trong Dockerfile
+ultralytics>=8.4
+supervision>=0.26
+opencv-python-headless
+numpy
+scipy
+scikit-learn
+umap-learn
+transformers
+lap>=0.5.12
+pyyaml
+tqdm
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+rq>=1.16
+redis>=5.0

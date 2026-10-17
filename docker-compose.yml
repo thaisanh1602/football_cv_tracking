@@ -1,0 +1,35 @@
+# Chế độ nhiều container: redis, api, worker tách riêng (máy local / VPS).
+#   docker compose up --build      -> mở http://localhost:8000
+# Weights đọc từ ./outputs (best.pt, pitch_best.pt), clip mẫu từ ./outputs/web_clips.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  api:
+    build: .
+    command: ["uvicorn", "app.main:app", "--app-dir", "/app/web/backend", "--host", "0.0.0.0", "--port", "7860"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:7860"
+    volumes:
+      - ./outputs/web_clips:/data/clips:ro
+      - jobs:/data/jobs
+    depends_on: [redis]
+
+  worker:
+    build: .
+    command: ["rq", "worker", "clips", "--url", "redis://redis:6379/0"]
+    working_dir: /app/web/backend
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./outputs:/weights:ro
+      - jobs:/data/jobs
+      - hf-cache:/data/hf
+    depends_on: [redis]
+
+volumes:
+  jobs:
+  hf-cache:

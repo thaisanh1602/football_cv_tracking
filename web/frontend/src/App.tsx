@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ClipPlayer } from "./components/ClipPlayer";
+import { UploadPanel } from "./components/UploadPanel";
 import type { ClipInfo, ClipMeta, ViewOptions } from "./types";
 
 const REPO = "https://github.com/thaisanh1602/football_cv_tracking";
@@ -17,6 +18,18 @@ export default function App() {
   const [meta, setMeta] = useState<ClipMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opt, setOpt] = useState<ViewOptions>({ kalman: true, speed: true, trails: true });
+  const [config, setConfig] = useState<{ upload_enabled: boolean; max_seconds: number; max_upload_mb: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config").then((r) => r.json()).then(setConfig).catch(() => setConfig(null));
+  }, []);
+
+  const addUploadedClip = async (clipId: string) => {
+    const m: ClipMeta = await fetch(`/api/clips/${clipId}/meta`).then((r) => r.json());
+    const c: ClipInfo = { id: clipId, title: "Clip của bạn", fps: m.video.fps, frames: m.video.frames, duration: +(m.video.frames / m.video.fps).toFixed(1) };
+    setClips((list) => [...list, c]);
+    setClip(c);
+  };
 
   useEffect(() => {
     fetch("/api/clips")
@@ -77,6 +90,12 @@ export default function App() {
               {c.title} <span className="muted small">{c.duration}s</span>
             </button>
           ))}
+          {config?.upload_enabled && (
+            <>
+              <h2>Clip của bạn</h2>
+              <UploadPanel maxSeconds={config.max_seconds} maxMb={config.max_upload_mb} onDone={addUploadedClip} />
+            </>
+          )}
           <h2>Hiển thị</h2>
           <label className="switch">
             <input type="checkbox" checked={opt.kalman} onChange={() => toggle("kalman")} />

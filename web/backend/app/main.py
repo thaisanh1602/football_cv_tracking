@@ -4,14 +4,20 @@ Mỗi clip trong CLIPS_DIR gồm <id>.mp4 (video gốc) và <id>.json (annotatio
 
     uvicorn app.main:app --reload --port 8000        (chạy trong web/backend)
 """
+import asyncio
 import json
 import os
+import re
+import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+from app import jobs
 
 ROOT = Path(__file__).resolve().parents[3]
 CLIPS_DIR = Path(os.getenv("CLIPS_DIR", ROOT / "outputs" / "web_clips"))
@@ -22,10 +28,14 @@ app = FastAPI(title="football-cv-tracking demo")
 
 
 def _clip_path(clip_id: str, ext: str) -> Path:
-    # chỉ cho tên file đơn giản, chặn path traversal (../)
-    if not clip_id.replace("-", "").replace("_", "").isalnum():
+    """Clip mẫu: CLIPS_DIR/<id>.<ext>. Clip upload: id "job-<hex>" -> JOBS_DIR/<hex>/clip.<ext>.
+    Chỉ nhận tên đơn giản để chặn path traversal (../)."""
+    if m := re.fullmatch(r"job-([0-9a-f]{32})", clip_id):
+        p = jobs.JOBS_DIR / m.group(1) / f"clip.{ext}"
+    elif re.fullmatch(r"[A-Za-z0-9_-]+", clip_id):
+        p = CLIPS_DIR / f"{clip_id}.{ext}"
+    else:
         raise HTTPException(404, "clip không tồn tại")
-    p = CLIPS_DIR / f"{clip_id}.{ext}"
     if not p.exists():
         raise HTTPException(404, "clip không tồn tại")
     return p
@@ -83,6 +93,95 @@ async def stream_annotations(ws: WebSocket, clip_id: str):
             a = max(int(msg.get("from", 0)), 0)
             b = min(int(msg.get("to", a)), a + MAX_RANGE, len(frames))
             await ws.send_json({"type": "frames", "from": a, "to": b, "frames": frames[a:b]})
+    except WebSocketDisconnect:
+        pass
+
+
+def _job_status(job_id: str) -> dict:
+    from rq.exceptions import NoSuchJobError
+    from rq.job import Job
+
+    try:
+        job = Job.fetch(job_id, connection=jobs.get_queue().connection)
+    except NoSuchJobError:
+        raise HTTPException(404, "job không tồn tại")
+    state = job.get_status(refresh=True).value
+    out = {"id": job_id, "state": state, "stage": job.meta.get("stage"), "progress": job.meta.get("progress")}
+    if state == "queued":
+        out["position"] = job.get_position()
+    if state == "finished":
+        out["clip_id"] = f"job-{job_id}"
+    if state == "failed":
+        out["error"] = "Xử lý thất bại (video không đọc được hoặc lỗi pipeline)"
+    return out
+
+
+_redis_ok = {"value": False, "checked": 0.0}
+
+
+@app.get("/api/config")
+def config():
+    # cache 30 s: không có Redis thì mỗi lần ping chờ hết timeout kết nối
+    if time.time() - _redis_ok["checked"] > 30:
+        try:
+            jobs.get_queue().connection.ping()
+            _redis_ok["value"] = True
+        except Exception:
+            _redis_ok["value"] = False  # không có Redis -> chỉ xem clip mẫu
+        _redis_ok["checked"] = time.time()
+    return {"upload_enabled": _redis_ok["value"], "max_seconds": jobs.MAX_SECONDS, "max_upload_mb": jobs.MAX_UPLOAD_MB}
+
+
+@app.post("/api/jobs", status_code=202)
+async def create_job(file: UploadFile):
+    q = jobs.get_queue()
+    try:
+        queued = q.count
+    except Exception:
+        raise HTTPException(503, "Hàng đợi xử lý đang tắt, chỉ xem được clip mẫu")
+    if queued >= jobs.MAX_QUEUE:
+        raise HTTPException(429, "Hàng đợi đang đầy, thử lại sau ít phút")
+    jobs.cleanup_old_jobs()
+    job_id = uuid.uuid4().hex
+    d = jobs.JOBS_DIR / job_id
+    d.mkdir(parents=True)
+    size, limit = 0, jobs.MAX_UPLOAD_MB * 1e6
+    with open(d / "upload", "wb") as f:
+        while chunk := await file.read(1 << 20):
+            size += len(chunk)
+            if size > limit:
+                f.close()
+                (d / "upload").unlink()
+                d.rmdir()
+                raise HTTPException(413, f"File lớn hơn {jobs.MAX_UPLOAD_MB:.0f} MB")
+            f.write(chunk)
+    q.enqueue(jobs.process_upload, job_id, job_id=job_id, job_timeout=1800, result_ttl=int(jobs.JOB_TTL_HOURS * 3600))
+    return _job_status(job_id)
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str):
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(404, "job không tồn tại")
+    return _job_status(job_id)
+
+
+@app.websocket("/ws/jobs/{job_id}")
+async def job_updates(ws: WebSocket, job_id: str):
+    """Đẩy trạng thái job mỗi giây tới khi xong hoặc lỗi."""
+    await ws.accept()
+    try:
+        while True:
+            try:
+                st = await asyncio.to_thread(job_status, job_id)
+            except HTTPException:
+                await ws.close(code=4404)
+                return
+            await ws.send_json(st)
+            if st["state"] in ("finished", "failed", "canceled", "stopped"):
+                await ws.close()
+                return
+            await asyncio.sleep(1)
     except WebSocketDisconnect:
         pass
 

@@ -60,6 +60,9 @@ def main():
     ap.add_argument("--mask-alpha", type=float, default=0.5, help="EMA mask theo track: 1.0 = mask gốc từng frame, nhỏ hơn = ổn định hơn")
     ap.add_argument("--json-out", default=None, help="ghi annotation JSON cho web (src/export/annotations.py)")
     ap.add_argument("--no-video", action="store_true", help="không vẽ / ghi video (worker chỉ cần JSON)")
+    ap.add_argument("--pitch-every", type=int, default=1, help="chỉ tính keypoint sân mỗi N frame (CPU); giữa các lần dùng H gần nhất")
+    ap.add_argument("--team-every", type=int, default=1, help="chỉ chạy SigLIP phân đội mỗi N frame (CPU); giữa các lần dùng kết quả bỏ phiếu")
+    ap.add_argument("--progress-file", default=None, help="ghi tiến độ 'frame/tổng' để worker báo cho web")
     ap.add_argument("--max-frames", type=int, default=None, help="chỉ chạy N frame đầu (debug)")
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
@@ -124,7 +127,12 @@ def main():
 
             people = tracker.update(people, frame)
             ball = ball_tracker.update(ball)
-            teams = team_assigner.assign(frame, people) if team_assigner else None
+            teams = None
+            if team_assigner:
+                if i % args.team_every == 0:
+                    teams = team_assigner.assign(frame, people)
+                else:
+                    teams = team_assigner.assign_with_predictions(people, np.empty(0, dtype=int), [])
             masks = None
             if segmenter is not None and len(people):
                 masks = match_masks(*segmenter(frame), people.xyxy)
@@ -134,7 +142,8 @@ def main():
             speeds = feet_raw = feet_kf = ball_m = None
             radar_img = None
             if pitch_mapper:
-                if pitch_mapper.update(frame) is not None:
+                H = pitch_mapper.update(frame) if i % args.pitch_every == 0 else pitch_mapper.H
+                if H is not None:
                     feet = pitch_mapper.to_pitch(people.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)) if len(people) else np.empty((0, 2))
                     ball_m = pitch_mapper.to_pitch(ball.get_anchors_coordinates(sv.Position.CENTER)) if len(ball) else None
                     ids = people.tracker_id if len(people) else []
@@ -151,6 +160,8 @@ def main():
 
             if writer:
                 writer.add(i, people, teams, speeds, feet_raw, feet_kf, ball, ball_m)
+            if args.progress_file and i % 10 == 0:
+                Path(args.progress_file).write_text(f"{i + 1}/{video_info.total_frames}")
             if sink is not None:
                 out = annotator.annotate(frame, people, ball, teams, speeds, masks)
                 if radar_img is not None:

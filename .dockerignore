@@ -1,0 +1,12 @@
+.git
+.idea
+**/__pycache__
+outputs
+data
+notebooks
+assets
+docs
+web/frontend/node_modules
+web/frontend/dist
+*.pt
+*.mp4
