@@ -22,7 +22,9 @@ COPY configs configs
 COPY web/backend web/backend
 COPY --from=web /web/dist web/frontend/dist
 COPY docker/start.sh /start.sh
-RUN chmod +x /start.sh && mkdir -p /data/clips /data/jobs /data/hf /weights
+COPY docker/fetch_assets.py docker/fetch_assets.py
+# HF Spaces chạy container bằng user uid 1000 (không phải root) -> các thư mục ghi được phải mở quyền
+RUN chmod +x /start.sh && mkdir -p /data/clips /data/jobs /data/hf /weights && chmod -R 777 /data /weights
 
 ENV PYTHONUNBUFFERED=1 \
     YOLO_AUTOINSTALL=False \
@@ -30,6 +32,8 @@ ENV PYTHONUNBUFFERED=1 \
     JOBS_DIR=/data/jobs \
     WEIGHTS_DIR=/weights \
     HF_HOME=/data/hf \
+    YOLO_CONFIG_DIR=/tmp/ultralytics \
+    MPLCONFIGDIR=/tmp/matplotlib \
     PORT=7860
 EXPOSE 7860
 # mặc định: 1 container chạy cả redis + worker + api (HF Spaces); docker-compose ghi đè lệnh cho từng service

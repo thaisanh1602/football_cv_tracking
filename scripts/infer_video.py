@@ -59,6 +59,7 @@ def main():
     ap.add_argument("--seg-weights", default="yolo11m-seg.pt")
     ap.add_argument("--mask-alpha", type=float, default=0.5, help="EMA mask theo track: 1.0 = mask gốc từng frame, nhỏ hơn = ổn định hơn")
     ap.add_argument("--json-out", default=None, help="ghi annotation JSON cho web (src/export/annotations.py)")
+    ap.add_argument("--title", default=None, help="tên clip hiển thị trên web (ghi vào JSON)")
     ap.add_argument("--no-video", action="store_true", help="không vẽ / ghi video (worker chỉ cần JSON)")
     ap.add_argument("--pitch-every", type=int, default=1, help="chỉ tính keypoint sân mỗi N frame (CPU); giữa các lần dùng H gần nhất")
     ap.add_argument("--team-every", type=int, default=1, help="chỉ chạy SigLIP phân đội mỗi N frame (CPU); giữa các lần dùng kết quả bỏ phiếu")
@@ -117,7 +118,7 @@ def main():
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
     frames = sv.get_video_frames_generator(args.source, end=args.max_frames)
-    writer = AnnotationWriter(args.json_out, video_info.fps, src_w, src_h) if args.json_out else None
+    writer = AnnotationWriter(args.json_out, video_info.fps, src_w, src_h, args.title) if args.json_out else None
     sink_ctx = nullcontext() if args.no_video else sv.VideoSink(args.output, video_info)
     with sink_ctx as sink, (MOTWriter(args.mot_out) if args.mot_out else nullcontext()) as mot:
         for i, frame in enumerate(tqdm(frames, total=video_info.total_frames, desc="Tracking")):

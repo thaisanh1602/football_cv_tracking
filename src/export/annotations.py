@@ -3,6 +3,7 @@
 Schema (version 1):
 {
   "version": 1,
+  "title": "tên hiển thị" (tuỳ chọn),
   "video": {"fps", "width", "height", "frames"},
   "pitch": {"length", "width", "vertices": [[x, y]...], "edges": [[i, j]...], "centre_circle_radius"},   # mét
   "teams": ["#00BFFF", "#FF1493", "#FFD700", "#AAAAAA"],      # màu theo index: đội 0, đội 1, trọng tài, chưa rõ
@@ -34,8 +35,9 @@ def _r(a) -> list | None:
 
 
 class AnnotationWriter:
-    def __init__(self, path: str | Path, fps: float, width: int, height: int):
+    def __init__(self, path: str | Path, fps: float, width: int, height: int, title: str | None = None):
         self.path = Path(path)
+        self.title = title
         self.meta = {"fps": fps, "width": width, "height": height}
         self.frames = []
 
@@ -62,6 +64,7 @@ class AnnotationWriter:
     def close(self):
         doc = {
             "version": 1,
+            **({"title": self.title} if self.title else {}),
             "video": self.meta | {"frames": len(self.frames)},
             "pitch": {
                 "length": PITCH.length,

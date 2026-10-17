@@ -43,7 +43,9 @@ src/
   eval/         export_mot.py, run_trackeval.py (HOTA / IDF1 / IDSW)
   viz/          annotate.py
   utils/        label_mapping.py
-scripts/        prepare_dataset.py, train.py, infer_video.py,
+web/            backend/ (FastAPI + RQ worker), frontend/ (React + Canvas)
+docker/, Dockerfile, docker-compose.yml, deploy/hf_space/
+scripts/        prepare_dataset.py, train.py, infer_video.py, export_models.py, benchmark.py, upload_assets.py,
                 eval_soccernet.py, analyze_idsw.py, eval_ball.py, eval_team.py,
                 prepare_pitch_dataset.py, train_pitch.py
 notebooks/      kaggle_train.ipynb, kaggle_eval.ipynb, kaggle_train_pitch.ipynb
@@ -71,6 +73,33 @@ python scripts/infer_video.py --source data/clip.mp4 --weights outputs/best.pt \
 python scripts/eval_soccernet.py --data-root data/SoccerNet/tracking/test --weights outputs/best.pt \
     --trackers configs/bytetrack.yaml configs/botsort_tuned.yaml --limit 10
 ```
+
+## Demo web
+
+**Live demo:** <!-- TODO: link Hugging Face Space -->
+
+Trình duyệt phát video gốc và tự vẽ overlay (Canvas) từ annotation JSON stream qua WebSocket; server không gửi video đã render. Annotation chứa cả vị trí radar thô lẫn đã lọc Kalman, nên người xem bật / tắt bộ lọc ngay trên trang.
+
+```
+Upload ─► FastAPI ─► Redis queue ─► Worker (detect → track → phân đội → radar → Kalman) ─► clip.json
+Trình duyệt ◄── video gốc (HTTP Range) + annotation (WebSocket theo khoảng frame) ──► <canvas>
+```
+
+- `web/backend`: FastAPI (danh sách clip, video, WebSocket annotation, job upload + tiến độ qua WebSocket), RQ worker trong `app/jobs.py`.
+- `web/frontend`: React + Vite + TypeScript, overlay đồng bộ từng frame bằng `requestVideoFrameCallback`.
+- Hiệu năng (`scripts/benchmark.py`, CPU i7-8750H, 1080p): YOLO11m @1280 khoảng 0.8 s/frame với PyTorch, ONNX và OpenVINO đều chậm hơn trên CPU này; giảm xuống 640 nhanh gấp 3 nhưng mất khoảng 26% số cầu thủ. Vì vậy clip mẫu được xử lý trước trên GPU, còn upload chạy nền trên CPU (tối đa 10 s, keypoint sân và phân đội mỗi 5 frame, khoảng 5 phút cho clip 4 s).
+
+**Chạy local** (cần `outputs/best.pt`, `outputs/pitch_best.pt`, clip mẫu trong `outputs/web_clips/`):
+
+```bash
+docker compose up --build      # redis + api + worker, mở http://localhost:8000
+```
+
+**Deploy lên Hugging Face Spaces** (1 container: `docker/start.sh` chạy redis + worker + API):
+
+1. Đưa weights + clip demo lên một model repo private: `huggingface-cli login`, rồi `python scripts/upload_assets.py --repo <user>/football-cv-assets` (hoặc mục E của `notebooks/kaggle_eval.ipynb` làm cả bước tạo clip 30 s trên GPU lẫn upload).
+2. Tạo Space mới, SDK **Docker**, upload 2 file trong `deploy/hf_space/` (`README.md`, `Dockerfile`). Dockerfile clone code từ GitHub nên mỗi lần bấm *Factory rebuild* là lấy code mới nhất.
+3. Settings của Space: Variable `ASSETS_REPO=<user>/football-cv-assets`, `MAX_UPLOAD_SECONDS=6`; Secret `HF_TOKEN` (token quyền read).
 
 ## Kết quả
 
