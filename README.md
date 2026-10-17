@@ -12,6 +12,7 @@ Detection, tracking, phân đội và **radar 2D có tốc độ thật** cho vi
 | Phân đội | SigLIP + UMAP + KMeans(3): accuracy **0.94** (KMeans màu áo: 0.62) |
 | Radar | Sai số vị trí trung vị **1.27 m** (model keypoint có sẵn: 5.87 m) |
 | Tốc độ | Sai số trung vị **1.3 km/h** so với quỹ đạo thật |
+| Chống rung | Rung radar **−90%** (sai số chỉ +3 cm), nhấp nháy mask −15% – −35% · [bài viết](docs/blog_chong_rung_overlay.md) |
 
 <details><summary>Demo tracking + phân đội (giai đoạn trước, SNMOT-060)</summary>
 
@@ -34,7 +35,8 @@ src/
   detection/    detector.py (YOLO -> sv.Detections, map class), ball_sahi.py (sliced inference cho bóng)
   tracking/     trackers.py (bọc tracker Ultralytics), ball_tracker.py
   team/         team_classifier.py (SigLIP + UMAP + KMeans, TeamAssigner)
-  stabilize/    camera_motion.py (bù chuyển động camera), metrics.py (rung), overlay_filter.py (Kalman / One-Euro theo track)
+  stabilize/    camera_motion.py (bù chuyển động camera), metrics.py (rung), overlay_filter.py (Kalman / One-Euro theo track),
+                masks.py (YOLO-seg + ổn định mask theo track)
   pitch/        config.py (sân FIFA 105×68 m, 32 keypoint, flip_idx), keypoints.py (YOLO-pose),
                 homography.py (RANSAC + kiểm tra H + làm mượt One-Euro + phát hiện cắt cảnh), radar.py,
                 kinematics.py (tốc độ, quãng đường)
@@ -228,6 +230,22 @@ Kalman bên trong tracker đã đưa rung của ellipse xuống ngang mức GT (
 - **Rung thật nằm ở radar, không ở ellipse:** chấm radar rung gấp 20–46 lần người thật, vì homography lệch vài pixel đã thành vài chục cm trên sân.
 - **Kalman vận tốc không đổi theo từng cầu thủ** (`src/stabilize/overlay_filter.py`), đặt sau homography: rung giảm **90%** (10.1 → 1.0 cm/frame², còn khoảng 2 lần mức người thật) mà sai số chỉ tăng 3 cm. Cùng mức rung, EMA trễ hơn 12 cm vì không có mô hình vận tốc. Bộ lọc tự reset khi track nhảy xa hơn mức chạy được (ID switch, H hỏng), không kéo chấm trượt qua sân.
 - Tốc độ hiển thị vẫn tính trên vị trí chưa lọc (Savitzky-Golay 2 s đã tự làm mượt), để không làm mượt hai lần.
+
+**Mask người** (`scripts/eval_mask_flicker.py`, GSR test, YOLO11m-seg pretrained, khoảng 26k cặp frame). Mask được căn theo box của từng cầu thủ (canvas cố định) nên chuyển động camera, việc chạy và co giãn đã bị trừ; mask ổn định = EMA xác suất trong canvas. Không có GT mask nên đo flicker (1 − IoU giữa 2 frame liên tiếp) kèm độ trung thành (IoU với mask gốc):
+
+| Mask | Flicker trung vị | Flicker p90 | Độ trung thành |
+|---|---|---|---|
+| Gốc từng frame | 0.186 | 0.390 | 1.000 |
+| **EMA α = 0.5** (mặc định) | 0.158 | 0.347 | 0.952 |
+| EMA α = 0.3 | 0.121 | 0.235 | 0.866 |
+
+Mask khó lọc hơn radar: một phần flicker là tay chân thật sự đổi hình dạng. α = 0.3 bớt 35% nhấp nháy nhưng chân tách ra chậm 1–2 frame (`assets/mask_stabilization.png`).
+
+**Video so sánh trước / sau** (`scripts/side_by_side.py`, [YouTube](https://youtu.be/YHe2ba2jRTI)): trái là H thô + không lọc radar + mask gốc, phải là cấu hình mặc định.
+
+![so sánh trước / sau](assets/compare.gif)
+
+Bài viết kỹ thuật về toàn bộ phần chống rung: [docs/blog_chong_rung_overlay.md](docs/blog_chong_rung_overlay.md).
 
 ## Phân tích lỗi & hạn chế
 
