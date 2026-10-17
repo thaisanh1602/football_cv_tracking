@@ -29,6 +29,7 @@ class PeopleTracker:
             return sv.Detections.empty()
         # mỗi track: x1, y1, x2, y2, id, score, cls, idx (idx = vị trí trong dets)
         out = dets[tracks[:, 7].astype(int)]
+        out.data["det_xyxy"] = out.xyxy.copy()  # box detection thô, trước khi qua Kalman của tracker
         out.xyxy = tracks[:, :4]
         out.tracker_id = tracks[:, 4].astype(int)
         return out
