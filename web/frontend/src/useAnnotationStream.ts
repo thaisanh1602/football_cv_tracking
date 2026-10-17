@@ -8,7 +8,15 @@ const PREFETCH = 50; // còn ít hơn ngần này frame phía trước thì xin 
  * Bộ đệm annotation nhận qua WebSocket. Gọi need(frame) mỗi khi vẽ: nếu phía trước frame đó chưa có dữ liệu
  * (hoặc vừa tua tới chỗ chưa có), xin thêm 1 khoảng. get(frame) trả annotation nếu đã có.
  */
-export function useAnnotationStream(clipId: string | null, totalFrames: number) {
+/** URL WebSocket tương đối với trang hiện tại (chạy được cả khi app nằm dưới 1 thư mục con). */
+export function wsUrl(path: string) {
+  const u = new URL(path, location.href);
+  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+  return u.toString();
+}
+
+/** staticFrames: chế độ hosting tĩnh -> toàn bộ frame đã có sẵn, không mở WebSocket. */
+export function useAnnotationStream(clipId: string | null, totalFrames: number, staticFrames: FrameAnn[] | null = null) {
   const buffer = useRef(new Map<number, FrameAnn>());
   const pending = useRef(new Map<number, number>()); // các khoảng [from, to) đang chờ trả lời
   const ws = useRef<WebSocket | null>(null);
@@ -18,8 +26,12 @@ export function useAnnotationStream(clipId: string | null, totalFrames: number) 
     buffer.current.clear();
     pending.current.clear();
     if (!clipId) return;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const socket = new WebSocket(`${proto}://${location.host}/ws/clips/${clipId}`);
+    if (staticFrames) {
+      for (const fr of staticFrames) buffer.current.set(fr.f, fr);
+      setConnected(true);
+      return;
+    }
+    const socket = new WebSocket(wsUrl(`ws/clips/${clipId}`));
     ws.current = socket;
     socket.onopen = () => setConnected(true);
     socket.onclose = () => setConnected(false);
@@ -30,7 +42,7 @@ export function useAnnotationStream(clipId: string | null, totalFrames: number) 
       pending.current.delete(msg.from);
     };
     return () => socket.close();
-  }, [clipId]);
+  }, [clipId, staticFrames]);
 
   const isPending = (f: number) => {
     for (const [a, b] of pending.current) if (f >= a && f < b) return true;

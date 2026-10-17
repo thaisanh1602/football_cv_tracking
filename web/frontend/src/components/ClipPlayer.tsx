@@ -1,17 +1,18 @@
 import { useEffect, useRef } from "react";
 import { drawOverlay, drawRadar, radarHeight } from "../draw";
+import type { Source } from "../source";
 import type { ClipInfo, ClipMeta, FrameAnn, ViewOptions } from "../types";
 import { useAnnotationStream } from "../useAnnotationStream";
 
 const RADAR_W = 520;
 const TRAIL_FRAMES = 25; // vệt 1 s ở 25 fps
 
-export function ClipPlayer({ clip, meta, opt }: { clip: ClipInfo; meta: ClipMeta; opt: ViewOptions }) {
+export function ClipPlayer({ clip, meta, opt, source }: { clip: ClipInfo; meta: ClipMeta; opt: ViewOptions; source: Source }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const radarRef = useRef<HTMLCanvasElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
-  const { connected, need, get } = useAnnotationStream(clip.id, meta.video.frames);
+  const { connected, need, get } = useAnnotationStream(clip.id, meta.video.frames, source.allFrames(clip.id));
 
   useEffect(() => {
     const video = videoRef.current!;
@@ -65,13 +66,14 @@ export function ClipPlayer({ clip, meta, opt }: { clip: ClipInfo; meta: ClipMeta
   return (
     <div className="player">
       <div className="video-wrap" style={{ aspectRatio: `${meta.video.width} / ${meta.video.height}` }}>
-        <video ref={videoRef} src={`/api/clips/${clip.id}/video`} controls muted playsInline loop preload="auto" />
+        <video ref={videoRef} src={source.videoUrl(clip.id)} controls muted playsInline loop preload="auto" />
         <canvas ref={overlayRef} width={meta.video.width} height={meta.video.height} className="overlay" />
       </div>
       <div className="below">
         <canvas ref={radarRef} width={RADAR_W} height={radarHeight(meta, RADAR_W)} className="radar" />
         <div className="status">
-          <span className={`dot ${connected ? "on" : ""}`} /> {connected ? "WebSocket đã kết nối" : "Đang kết nối…"}
+          <span className={`dot ${connected ? "on" : ""}`} />{" "}
+          {source.mode === "static" ? "Annotation tải từ file tĩnh (bản demo không có backend)" : connected ? "WebSocket đã kết nối" : "Đang kết nối…"}
           <div ref={statusRef} className="muted" />
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { wsUrl } from "../useAnnotationStream";
 
 interface JobStatus {
   id: string;
@@ -31,15 +32,14 @@ export function UploadPanel({ maxSeconds, maxMb, onDone }: { maxSeconds: number;
     }
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch("/api/jobs", { method: "POST", body });
+    const res = await fetch("api/jobs", { method: "POST", body });
     if (!res.ok) {
       setError((await res.json().catch(() => null))?.detail ?? `Lỗi ${res.status}`);
       return;
     }
     const st: JobStatus = await res.json();
     setStatus(st);
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws/jobs/${st.id}`);
+    const ws = new WebSocket(wsUrl(`ws/jobs/${st.id}`));
     ws.onmessage = (e) => {
       const s: JobStatus = JSON.parse(e.data);
       setStatus(s);

@@ -95,11 +95,13 @@ Trình duyệt ◄── video gốc (HTTP Range) + annotation (WebSocket theo k
 docker compose up --build      # redis + api + worker, mở http://localhost:8000
 ```
 
-**Deploy lên Hugging Face Spaces** (1 container: `docker/start.sh` chạy redis + worker + API):
+**Demo công khai (bản tĩnh, miễn phí, không bao giờ "ngủ")**: frontend tự chuyển sang chế độ static khi không có backend, đọc `clips/index.json`, tải trọn annotation JSON của clip (khoảng 1 MB cho 30 s) và phát video. Overlay, radar, bật / tắt Kalman giống hệt bản đầy đủ; chỉ upload là cần backend.
 
-1. Đưa weights + clip demo lên một model repo private: `huggingface-cli login`, rồi `python scripts/upload_assets.py --repo <user>/football-cv-assets` (hoặc mục E của `notebooks/kaggle_eval.ipynb` làm cả bước tạo clip 30 s trên GPU lẫn upload).
-2. Tạo Space mới, SDK **Docker**, upload 2 file trong `deploy/hf_space/` (`README.md`, `Dockerfile`). Dockerfile clone code từ GitHub nên mỗi lần bấm *Factory rebuild* là lấy code mới nhất.
-3. Settings của Space: Variable `ASSETS_REPO=<user>/football-cv-assets`, `MAX_UPLOAD_SECONDS=6`; Secret `HF_TOKEN` (token quyền read).
+1. Tạo clip demo 30 s trên GPU: mục E của `notebooks/kaggle_eval.ipynb` (`RUN_WEB_CLIPS = True`), tải `results/web_clips` về `outputs/web_clips/`.
+2. Build và đóng gói: `cd web/frontend && npm run build`, rồi `python scripts/build_static_site.py --clips outputs/web_clips --out outputs/static_site`.
+3. Đưa lên HF Static Space: `huggingface-cli login`, rồi thêm `--push <user>/football-cv-demo` vào lệnh trên (hoặc tạo Space SDK **Static** và upload thư mục `outputs/static_site`).
+
+Bản đầy đủ có upload + job queue cần chạy container (`docker compose up`, hoặc `deploy/hf_space/` cho Space Docker trả phí / VM).
 
 ## Kết quả
 
