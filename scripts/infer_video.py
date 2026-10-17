@@ -54,6 +54,9 @@ def main():
     ap.add_argument("--no-smooth", action="store_true", help="tắt làm mượt homography (để so sánh độ rung)")
     ap.add_argument("--no-radar-filter", action="store_true", help="tắt Kalman theo từng cầu thủ trên radar (bản 'trước' để so sánh)")
     ap.add_argument("--radar-layout", choices=["stack", "overlay"], default="stack", help="radar dưới video hoặc chồng lên")
+    ap.add_argument("--seg", action="store_true", help="tô bóng người (mask YOLO-seg) theo màu đội")
+    ap.add_argument("--seg-weights", default="yolo11m-seg.pt")
+    ap.add_argument("--mask-alpha", type=float, default=0.5, help="EMA mask theo track: 1.0 = mask gốc từng frame, nhỏ hơn = ổn định hơn")
     ap.add_argument("--max-frames", type=int, default=None, help="chỉ chạy N frame đầu (debug)")
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
@@ -73,6 +76,13 @@ def main():
         team_assigner = TeamAssigner(classifier)
 
     video_info = sv.VideoInfo.from_video_path(args.source)
+
+    segmenter = mask_stab = None
+    if args.seg:
+        from src.stabilize.masks import MaskStabilizer, PersonSegmenter, match_masks
+
+        segmenter = PersonSegmenter(args.seg_weights, device=args.device)
+        mask_stab = MaskStabilizer(alpha=args.mask_alpha)
 
     pitch_mapper = radar = None
     if args.pitch_weights:
@@ -108,6 +118,11 @@ def main():
             people = tracker.update(people, frame)
             ball = ball_tracker.update(ball)
             teams = team_assigner.assign(frame, people) if team_assigner else None
+            masks = None
+            if segmenter is not None and len(people):
+                masks = match_masks(*segmenter(frame), people.xyxy)
+                if args.mask_alpha < 1.0:
+                    masks = [None if m is None else mask_stab.update(i, int(t), m, b) for m, t, b in zip(masks, people.tracker_id, people.xyxy)]
 
             speeds = None
             radar_img = None
@@ -126,7 +141,7 @@ def main():
                 else:
                     radar_img = radar.empty()
 
-            out = annotator.annotate(frame, people, ball, teams, speeds)
+            out = annotator.annotate(frame, people, ball, teams, speeds, masks)
             if radar_img is not None:
                 out = stack_radar(out, radar_img) if args.radar_layout == "stack" else overlay_radar(out, radar_img)
             sink.write_frame(out)

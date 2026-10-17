@@ -62,7 +62,7 @@ class Radar:
         return img
 
 
-    def empty(self, message: str = "Khong du vach san de dung radar") -> np.ndarray:
+    def empty(self, message: str = "Not enough pitch lines visible") -> np.ndarray:
         img = (self.base * 0.6).astype(np.uint8)
         cv2.putText(img, message, (self.padding + 20, img.shape[0] // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
         return img

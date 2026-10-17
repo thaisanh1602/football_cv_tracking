@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import supervision as sv
 
@@ -25,11 +26,15 @@ class FootballAnnotator:
         ball: sv.Detections,
         teams: np.ndarray | None = None,
         speeds_kmh: np.ndarray | None = None,
+        masks: list | None = None,
     ) -> np.ndarray:
+        """masks: mask toàn khung (bool) cho từng người, None nếu không có -> tô bóng người bán trong suốt."""
         scene = frame.copy()
         if len(people):
             # chưa phân đội thì tô màu theo class (player / goalkeeper / referee)
             lookup = people.class_id if teams is None else np.where(teams < 0, 3, teams)
+            if masks is not None:
+                scene = fill_masks(scene, masks, lookup)
             labels = None
             if people.tracker_id is not None:
                 labels = [f"#{tid}" for tid in people.tracker_id]
@@ -40,3 +45,11 @@ class FootballAnnotator:
         if len(ball):
             scene = self.triangle.annotate(scene, ball)
         return scene
+
+
+def fill_masks(scene: np.ndarray, masks: list, color_idx, alpha: float = 0.4) -> np.ndarray:
+    overlay = scene.copy()
+    for m, c in zip(masks, color_idx):
+        if m is not None:
+            overlay[m] = TEAM_PALETTE.by_idx(int(c)).as_bgr()
+    return cv2.addWeighted(overlay, alpha, scene, 1 - alpha, 0)
