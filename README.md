@@ -1,6 +1,6 @@
 # football-cv-tracking
 
-Detection, tracking, phân đội và **radar 2D có tốc độ thật** cho video bóng đá broadcast. Mọi bước đều được đo trên SoccerNet (Tracking + Game State Reconstruction), không chỉ xem bằng mắt.
+Detection, tracking, phân đội và **radar 2D có tốc độ thật** cho video bóng đá broadcast. **[Live demo](https://huggingface.co/spaces/ThaisAnhzz/football-cv-demo)** Mọi bước đều được đo trên SoccerNet (Tracking + Game State Reconstruction), không chỉ xem bằng mắt.
 
 ![radar demo](assets/radar_demo.gif)
 
@@ -76,7 +76,7 @@ python scripts/eval_soccernet.py --data-root data/SoccerNet/tracking/test --weig
 
 ## Demo web
 
-**Live demo:** <!-- TODO: link Hugging Face Space -->
+**Live demo:** https://huggingface.co/spaces/ThaisAnhzz/football-cv-demo (bản tĩnh: 2 clip SoccerNet 30 s xử lý trước trên GPU, bật / tắt lọc Kalman ngay trên trang)
 
 Trình duyệt phát video gốc và tự vẽ overlay (Canvas) từ annotation JSON stream qua WebSocket; server không gửi video đã render. Annotation chứa cả vị trí radar thô lẫn đã lọc Kalman, nên người xem bật / tắt bộ lọc ngay trên trang.
 
