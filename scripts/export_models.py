@@ -7,6 +7,7 @@ TensorRT engine gắn với đúng loại GPU lúc build (engine build trên Kag
 """
 import argparse
 import shutil
+import tempfile
 from pathlib import Path
 
 from ultralytics import YOLO
@@ -23,7 +24,12 @@ def main():
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp())
     for w in args.weights:
+        # Ultralytics ghi file export cạnh file .pt; chép sang thư mục ghi được trước
+        # (vd /kaggle/input là read-only)
+        src = work / Path(w).name
+        shutil.copy2(w, src)
         for fmt in args.formats:
             for sz in args.imgsz:
                 kw = dict(format=fmt, imgsz=sz, device=args.device)
@@ -31,7 +37,7 @@ def main():
                     kw |= dict(simplify=True, opset=17)
                 else:
                     kw |= dict(half=True)  # FP16 trên tensor core
-                path = Path(YOLO(w).export(**kw))
+                path = Path(YOLO(str(src)).export(**kw))
                 dst = out / f"{Path(w).stem}_{sz}{path.suffix}"
                 shutil.move(str(path), dst)
                 print(f"{w} -> {dst} ({dst.stat().st_size / 1e6:.0f} MB)")
