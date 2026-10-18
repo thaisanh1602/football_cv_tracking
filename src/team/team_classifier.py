@@ -26,6 +26,8 @@ class SiglipEmbedder:
         from transformers import AutoImageProcessor, SiglipVisionModel
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        if str(self.device).isdigit():  # quy ước Ultralytics "0" -> PyTorch cần "cuda:0"
+            self.device = f"cuda:{self.device}"
         self.model = SiglipVisionModel.from_pretrained(model_id).to(self.device).eval()
         self.processor = AutoImageProcessor.from_pretrained(model_id)
         self.batch_size = batch_size
