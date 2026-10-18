@@ -5,6 +5,7 @@
         --sahi --team --mot-out outputs/mot/clip.txt
 """
 import argparse
+import json
 import sys
 from collections import defaultdict, deque
 from contextlib import nullcontext
@@ -22,6 +23,7 @@ from src.eval.export_mot import MOTWriter  # noqa: E402
 from src.export.annotations import AnnotationWriter  # noqa: E402
 from src.tracking.ball_tracker import BallTracker  # noqa: E402
 from src.tracking.trackers import PeopleTracker  # noqa: E402
+from src.pitch.config import PITCH  # noqa: E402
 from src.utils.label_mapping import PLAYER_ID, REFEREE_ID  # noqa: E402
 from src.viz.annotate import FootballAnnotator  # noqa: E402
 
@@ -52,6 +54,8 @@ def main():
     ap.add_argument("--mot-out", default=None, help="ghi kết quả tracking cầu thủ dạng MOT")
     ap.add_argument("--pitch-weights", default=None, help="model keypoint sân -> vẽ radar 2D")
     ap.add_argument("--pitch-imgsz", type=int, default=1280, help="imgsz lúc train model keypoint sân")
+    ap.add_argument("--fixed-homography", default=None,
+                    help='camera cố định: JSON {"H": 3x3 ảnh->sân (m), "length", "width"} do người dùng hiệu chỉnh; thay cho model keypoint')
     ap.add_argument("--no-smooth", action="store_true", help="tắt làm mượt homography (để so sánh độ rung)")
     ap.add_argument("--no-radar-filter", action="store_true", help="tắt Kalman theo từng cầu thủ trên radar (bản 'trước' để so sánh)")
     ap.add_argument("--radar-layout", choices=["stack", "overlay"], default="stack", help="radar dưới video hoặc chồng lên")
@@ -93,7 +97,15 @@ def main():
         mask_stab = MaskStabilizer(alpha=args.mask_alpha)
 
     pitch_mapper = radar = None
-    if args.pitch_weights:
+    pitch_cfg = PITCH
+    if args.fixed_homography:
+        from src.pitch.config import scaled_pitch
+        from src.pitch.homography import FixedPitchMapper
+
+        calib = json.loads(Path(args.fixed_homography).read_text(encoding="utf-8"))
+        pitch_cfg = scaled_pitch(calib["length"], calib["width"])
+        pitch_mapper = FixedPitchMapper(np.array(calib["H"]))
+    if args.pitch_weights or args.fixed_homography:
         from src.pitch.homography import PitchMapper
         from src.pitch.keypoints import PitchKeypointDetector
         from src.pitch.radar import Radar, overlay_radar, stack_radar
@@ -107,8 +119,9 @@ def main():
         # luôn tính (JSON cần cả vị trí thô lẫn đã lọc); --no-radar-filter chỉ quyết định video vẽ bản nào
         radar_filter = TrackFilterBank(lambda: KalmanCV(fps=video_info.fps, accel_std=2.0), fps=video_info.fps)
         trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=int(video_info.fps)))
-        pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
-        radar = Radar()
+        if pitch_mapper is None:
+            pitch_mapper = PitchMapper(PitchKeypointDetector(args.pitch_weights, imgsz=args.pitch_imgsz, device=args.device), smooth=not args.no_smooth, fps=video_info.fps)
+        radar = Radar(pitch=pitch_cfg)
         if args.radar_layout == "stack":  # khung hình cao thêm phần radar
             probe = stack_radar(np.zeros((video_info.height, video_info.width, 3), np.uint8), radar.base)
             video_info.height = probe.shape[0]
@@ -118,7 +131,7 @@ def main():
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
     frames = sv.get_video_frames_generator(args.source, end=args.max_frames)
-    writer = AnnotationWriter(args.json_out, video_info.fps, src_w, src_h, args.title) if args.json_out else None
+    writer = AnnotationWriter(args.json_out, video_info.fps, src_w, src_h, args.title, pitch=pitch_cfg) if args.json_out else None
     sink_ctx = nullcontext() if args.no_video else sv.VideoSink(args.output, video_info)
     with sink_ctx as sink, (MOTWriter(args.mot_out) if args.mot_out else nullcontext()) as mot:
         for i, frame in enumerate(tqdm(frames, total=video_info.total_frames, desc="Tracking")):

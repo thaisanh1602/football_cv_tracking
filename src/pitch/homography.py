@@ -171,3 +171,17 @@ class PitchMapper:
 
     def to_pitch(self, img_pts: np.ndarray) -> np.ndarray | None:
         return None if self.H is None else project(self.H, img_pts)
+
+
+class FixedPitchMapper:
+    """Camera cố định (chân máy, sân phong trào): 1 homography ảnh -> sân cho cả video, do người dùng hiệu chỉnh
+    bằng tay (bấm >= 4 điểm mốc trên 1 frame). Cùng giao diện với PitchMapper."""
+
+    def __init__(self, H: np.ndarray):
+        self.H = np.asarray(H, dtype=np.float64)
+
+    def update(self, frame: np.ndarray) -> np.ndarray:
+        return self.H
+
+    def to_pitch(self, img_pts: np.ndarray) -> np.ndarray:
+        return project(self.H, img_pts)

@@ -88,3 +88,21 @@ class PitchConfig:
 
 
 PITCH = PitchConfig()
+
+
+def scaled_pitch(length: float, width: float) -> PitchConfig:
+    """Sân kích thước bất kỳ (sân phong trào 5 / 7 người). Vạch vòng cấm, vòng tròn co theo tỷ lệ chiều dài so
+    với sân chuẩn và không vượt quá chiều rộng sân. Khớp cách web (apps/web Pitch.tsx) vẽ sân."""
+    if (length, width) == (PITCH.length, PITCH.width):
+        return PITCH
+    k = min(1.0, length / PITCH.length)
+    return PitchConfig(
+        length=length,
+        width=width,
+        penalty_box_width=min(PITCH.penalty_box_width * k, width * 0.7),
+        penalty_box_length=PITCH.penalty_box_length * k,
+        goal_box_width=min(PITCH.goal_box_width * k, width * 0.4),
+        goal_box_length=PITCH.goal_box_length * k,
+        centre_circle_radius=PITCH.centre_circle_radius * k,
+        penalty_spot_distance=PITCH.penalty_spot_distance * k,
+    )

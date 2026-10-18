@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.pitch.config import PITCH
+from src.pitch.config import PITCH, PitchConfig
 from src.utils.label_mapping import REFEREE_ID
 
 TEAM_COLORS = ["#00BFFF", "#FF1493", "#FFD700", "#AAAAAA"]
@@ -35,9 +35,10 @@ def _r(a) -> list | None:
 
 
 class AnnotationWriter:
-    def __init__(self, path: str | Path, fps: float, width: int, height: int, title: str | None = None):
+    def __init__(self, path: str | Path, fps: float, width: int, height: int, title: str | None = None, pitch: PitchConfig = PITCH):
         self.path = Path(path)
         self.title = title
+        self.pitch = pitch
         self.meta = {"fps": fps, "width": width, "height": height}
         self.frames = []
 
@@ -67,11 +68,11 @@ class AnnotationWriter:
             **({"title": self.title} if self.title else {}),
             "video": self.meta | {"frames": len(self.frames)},
             "pitch": {
-                "length": PITCH.length,
-                "width": PITCH.width,
-                "vertices": [_r(v) for v in PITCH.vertices],
-                "edges": [list(map(int, e)) for e in PITCH.edges],
-                "centre_circle_radius": PITCH.centre_circle_radius,
+                "length": self.pitch.length,
+                "width": self.pitch.width,
+                "vertices": [_r(v) for v in self.pitch.vertices],
+                "edges": [list(map(int, e)) for e in self.pitch.edges],
+                "centre_circle_radius": self.pitch.centre_circle_radius,
             },
             "teams": TEAM_COLORS,
             "frames": self.frames,
